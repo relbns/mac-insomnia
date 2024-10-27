@@ -4,12 +4,25 @@
   "description": "Mac Insomnia",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder"
   },
   "keywords": [],
   "author": "Ariel Benesh",
   "license": "ISC",
-  "dependencies": {
-    "electron": "^33.0.2"
+  "build": {
+    "appId": "com.nodomain.insomnia",
+    "productName": "Mac Insomnia",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.0.2",
+    "electron-builder": "^25.1.8"
   }
 }
