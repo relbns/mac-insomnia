@@ -1,0 +1,15 @@
+{
+  "name": "mac-insomnia",
+  "version": "1.0.0",
+  "description": "Mac Insomnia",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "Ariel Benesh",
+  "license": "ISC",
+  "dependencies": {
+    "electron": "^33.0.2"
+  }
+}
