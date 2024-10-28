@@ -1,10 +1,10 @@
 {
   "name": "mac-insomnia",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Mac Insomnia",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . 2>/dev/null",
     "build": "electron-builder"
   },
   "keywords": [],
@@ -18,11 +18,23 @@
       "icon": "build/icon.icns",
       "target": [
         "dmg"
-      ]
+      ],
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
     }
   },
   "devDependencies": {
     "electron": "^33.0.2",
     "electron-builder": "^25.1.8"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/relbns/mac-insomnia.git"
+  },
+  "bugs": {
+    "url": "https://github.com/relbns/mac-insomnia/issues"
+  },
+  "homepage": "https://github.com/relbns/mac-insomnia#readme"
 }
