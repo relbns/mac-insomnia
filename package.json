@@ -34,6 +34,14 @@
     "asarUnpack": [
       "assets",
       "renderer"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "relbns",
+        "repo": "mac-insomnia",
+        "releaseType": "release"
+      }
     ]
   },
   "devDependencies": {
