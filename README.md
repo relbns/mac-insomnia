@@ -4,20 +4,11 @@
 
 <h1 align="center">💤 Mac Insomnia</h1>
 
-<p align="center">
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT">
-  </a>
-  <a href="https://github.com/relbns/mac-insomnia/actions/workflows/release.yml">
-    <img src="https://github.com/relbns/mac-insomnia/actions/workflows/release.yml/badge.svg?style=flat-square" alt="Build Status">
-  </a>
-  <a href="https://github.com/relbns/mac-insomnia/releases">
-    <img src="https://img.shields.io/github/downloads/relbns/mac-insomnia/total.svg?style=flat-square" alt="GitHub Downloads">
-  </a>
-  <a href="https://github.com/relbns/mac-insomnia/releases/latest">
-    <img src="https://img.shields.io/github/v/release/relbns/mac-insomnia?label=latest&style=flat-square" alt="Latest Release">
-  </a>
-</p>
+<center>
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Build Status](https://github.com/relbns/mac-insomnia/actions/workflows/release.yml/badge.svg?style=flat-square)](https://github.com/relbns/mac-insomnia/actions/workflows/release.yml) [![GitHub Downloads](https://img.shields.io/github/downloads/relbns/mac-insomnia/total.svg?style=flat-square)](https://github.com/relbns/mac-insomnia/releases) [![Latest Release](https://img.shields.io/github/v/release/relbns/mac-insomnia?label=latest&style=flat-square)](https://github.com/relbns/mac-insomnia/releases/latest)
+
+</center>
 
 <p align="center">
   A minimalist macOS utility that keeps your Mac awake when you need it most.<br>
