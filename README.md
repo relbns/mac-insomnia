@@ -4,11 +4,7 @@
 
 <h1 align="center">💤 Mac Insomnia</h1>
 
-<p align="center">
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Build Status](https://github.com/relbns/mac-insomnia/actions/workflows/release.yml/badge.svg?style=flat-square)](https://github.com/relbns/mac-insomnia/actions/workflows/release.yml) [![GitHub Downloads](https://img.shields.io/github/downloads/relbns/mac-insomnia/total.svg?style=flat-square)](https://github.com/relbns/mac-insomnia/releases) [![Latest Release](https://img.shields.io/github/v/release/relbns/mac-insomnia?label=latest&style=flat-square)](https://github.com/relbns/mac-insomnia/releases/latest)
-
-</p>
 
 <p align="center">
   A minimalist macOS utility that keeps your Mac awake when you need it most.<br>
@@ -85,14 +81,6 @@ Feel free to use, modify, and share.
 
 ---
 
-## 👨‍💻 Author
-
-**Ariel Benesh**
-[GitHub: relbns](https://github.com/relbns)  
-[Website: benesh.io](https://www.benesh.io)
-
----
-
 <p align="center">
-  <sub>Built with ❤️ for macOS users</sub>
+  <sub>Built by @relbns for macOS users</sub>
 </p>
