@@ -1,6 +1,6 @@
 {
   "name": "mac-insomnia",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Mac Insomnia",
   "main": "main/main.js",
   "scripts": {
@@ -32,9 +32,9 @@
       "package.json"
     ],
     "asarUnpack": [
-  "assets",
-  "renderer"
-]
+      "assets",
+      "renderer"
+    ]
   },
   "devDependencies": {
     "electron": "^33.0.2",
