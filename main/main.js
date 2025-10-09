@@ -3,38 +3,38 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, exec } = require('child_process');
 
-// Settings management
+// Paths
+const ASSETS_PATH = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets');
+const RENDERER_PATH = path.join(process.resourcesPath, 'app.asar.unpacked', 'renderer');
+
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+
+// Default settings
 let settings = {
-    defaultDuration: null,  // null means infinite
-    iconSet: 'set1',       // 'set1' or 'set2'
+    defaultDuration: null, // null = infinite
+    iconSet: 'set1',
     soundEnabled: true,
     startAtLogin: false
 };
 
-// Add these helper functions at the top of your main.js
+// Helpers
 function isDevelopment () {
     return !app.isPackaged;
 }
 
-// Update the settings loading function
+// Settings management
 function loadSettings () {
     try {
         if (fs.existsSync(settingsPath)) {
             const data = fs.readFileSync(settingsPath, 'utf8');
             settings = { ...settings, ...JSON.parse(data) };
-
-            // Force startAtLogin to false in development
-            if (isDevelopment()) {
-                settings.startAtLogin = false;
-            }
+            if (isDevelopment()) settings.startAtLogin = false;
         }
     } catch (error) {
         console.error('Error loading settings:', error);
     }
 }
 
-// Save settings to file
 function saveSettings (newSettings) {
     try {
         fs.writeFileSync(settingsPath, JSON.stringify(newSettings));
@@ -44,18 +44,19 @@ function saveSettings (newSettings) {
     }
 }
 
-// Global references
+// Global refs
 let tray = null;
 let settingsWindow = null;
 let aboutWindow = null;
 let isPlaying = false;
 let caffeinateProcess = null;
-let duration = null;  // null means infinite
+let duration = null;
 let endTime = null;
 let durationCheckInterval = null;
 
+// Create hidden helper window
 function createWindow () {
-    mediaWindow = new BrowserWindow({
+    const mediaWindow = new BrowserWindow({
         width: 1,
         height: 1,
         show: false,
@@ -64,45 +65,35 @@ function createWindow () {
             contextIsolation: false
         }
     });
+    return mediaWindow;
 }
 
 ipcMain.on('save-settings', (event, newSettings) => {
-    if (isDevelopment()) {
-        newSettings.startAtLogin = false;
-    }
+    if (isDevelopment()) newSettings.startAtLogin = false;
 
     const previousIconSet = settings.iconSet;
     saveSettings(newSettings);
     updateLoginSettings(newSettings.startAtLogin);
 
-    if (newSettings.iconSet !== previousIconSet) {
-        updateTrayMenu();
-    }
-
+    if (newSettings.iconSet !== previousIconSet) updateTrayMenu();
     if (newSettings.defaultDuration !== settings.defaultDuration) {
         duration = newSettings.defaultDuration === 'null' ? null : parseInt(newSettings.defaultDuration);
         updateTrayMenu();
     }
 });
 
-// Add this IPC handler to check login item status
-ipcMain.handle('check-login-item-status', () => {
-    return app.getLoginItemSettings().openAtLogin;
-});
+ipcMain.handle('check-login-item-status', () => app.getLoginItemSettings().openAtLogin);
 
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+// Settings window
 function createSettingsWindow () {
-    if (settingsWindow) {
-        settingsWindow.focus();
-        return;
-    }
+    if (settingsWindow) return settingsWindow.focus();
 
     settingsWindow = new BrowserWindow({
         width: 400,
         height: 480,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
-        },
+        webPreferences: { nodeIntegration: true, contextIsolation: false },
         backgroundColor: '#1e1e1e',
         show: false,
         frame: true,
@@ -110,36 +101,24 @@ function createSettingsWindow () {
         fullscreenable: false
     });
 
-    settingsWindow.loadFile('settings.html');
-
+    settingsWindow.loadFile(path.join(RENDERER_PATH, 'settings.html'));
     settingsWindow.once('ready-to-show', () => {
-        // Modify settings object for development mode
-        const displaySettings = {
-            ...settings,
-            startAtLogin: isDevelopment() ? false : settings.startAtLogin
-        };
+        const displaySettings = { ...settings, startAtLogin: isDevelopment() ? false : settings.startAtLogin };
         settingsWindow.show();
         settingsWindow.webContents.send('load-settings', displaySettings);
     });
 
-    settingsWindow.on('closed', () => {
-        settingsWindow = null;
-    });
+    settingsWindow.on('closed', () => (settingsWindow = null));
 }
 
+// About window
 function createAboutWindow () {
-    if (aboutWindow) {
-        aboutWindow.focus();
-        return;
-    }
+    if (aboutWindow) return aboutWindow.focus();
 
     aboutWindow = new BrowserWindow({
         width: 300,
         height: 400,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
-        },
+        webPreferences: { nodeIntegration: true, contextIsolation: false },
         backgroundColor: '#1e1e1e',
         show: false,
         frame: true,
@@ -149,26 +128,19 @@ function createAboutWindow () {
         fullscreenable: false
     });
 
-    aboutWindow.loadFile('about.html');
-
-    aboutWindow.once('ready-to-show', () => {
-        aboutWindow.show();
-    });
-
-    aboutWindow.on('closed', () => {
-        aboutWindow = null;
-    });
+    aboutWindow.loadFile(path.join(RENDERER_PATH, 'about.html'));
+    aboutWindow.once('ready-to-show', () => aboutWindow.show());
+    aboutWindow.on('closed', () => (aboutWindow = null));
 }
 
+// Login item
 function updateLoginSettings (openAtLogin) {
     try {
-        // Skip setting login item in development
         if (isDevelopment()) {
-            console.log('Login item settings skipped in development mode');
-            settings.startAtLogin = false; // Force false in development
+            console.log('Login item skipped in development mode');
+            settings.startAtLogin = false;
             return;
         }
-
         app.setLoginItemSettings({
             openAtLogin,
             openAsHidden: true,
@@ -181,20 +153,16 @@ function updateLoginSettings (openAtLogin) {
     }
 
     saveSettings(settings);
-
-    // Update settings window if it's open
-    if (settingsWindow) {
-        settingsWindow.webContents.send('load-settings', settings);
-    }
+    if (settingsWindow) settingsWindow.webContents.send('load-settings', settings);
 }
 
+// Icons
 function getIconPaths () {
-    let iconSet = settings.iconSet || 'set1';
-    iconSet = iconSet.replace('set', '');
+    let iconSet = settings.iconSet?.replace('set', '') || '1';
     iconSet = iconSet === '1' ? '' : iconSet;
     return {
-        active: `icon-active${iconSet}.png`,
-        inactive: `icon${iconSet}.png`
+        active: path.join(ASSETS_PATH, `icon-active${iconSet}.png`),
+        inactive: path.join(ASSETS_PATH, `icon${iconSet}.png`)
     };
 }
 
@@ -204,6 +172,7 @@ function playSound (isActivating) {
     exec(`afplay /System/Library/Sounds/${sound}.aiff`);
 }
 
+// Tray management
 function formatDurationLabel (ms) {
     if (ms === null) return 'Infinite';
     const minutes = ms / 60000;
@@ -224,41 +193,15 @@ function createContextMenu () {
         {
             label: 'Set Duration',
             submenu: [
-                {
-                    label: 'Infinite',
-                    type: 'radio',
-                    checked: duration === null,
-                    click: () => setDuration(null)
-                },
-                {
-                    label: '30 minutes',
-                    type: 'radio',
-                    checked: duration === 30 * 60 * 1000,
-                    click: () => setDuration(30 * 60 * 1000)
-                },
-                {
-                    label: '1 hour',
-                    type: 'radio',
-                    checked: duration === 60 * 60 * 1000,
-                    click: () => setDuration(60 * 60 * 1000)
-                },
-                {
-                    label: '2 hours',
-                    type: 'radio',
-                    checked: duration === 2 * 60 * 60 * 1000,
-                    click: () => setDuration(2 * 60 * 60 * 1000)
-                }
+                { label: 'Infinite', type: 'radio', checked: duration === null, click: () => setDuration(null) },
+                { label: '30 minutes', type: 'radio', checked: duration === 30 * 60 * 1000, click: () => setDuration(30 * 60 * 1000) },
+                { label: '1 hour', type: 'radio', checked: duration === 60 * 60 * 1000, click: () => setDuration(60 * 60 * 1000) },
+                { label: '2 hours', type: 'radio', checked: duration === 2 * 60 * 60 * 1000, click: () => setDuration(2 * 60 * 60 * 1000) }
             ]
         },
         { type: 'separator' },
-        {
-            label: 'Settings',
-            click: () => createSettingsWindow()
-        },
-        {
-            label: 'About',
-            click: () => createAboutWindow()
-        },
+        { label: 'Settings', click: () => createSettingsWindow() },
+        { label: 'About', click: () => createAboutWindow() },
         { type: 'separator' },
         {
             label: 'Quit Insomnia',
@@ -272,40 +215,27 @@ function createContextMenu () {
 
 function createTray () {
     const iconPaths = getIconPaths();
-    const icon = nativeImage.createFromPath(path.join(__dirname, iconPaths.inactive));
+    const icon = nativeImage.createFromPath(iconPaths.inactive);
     icon.setTemplateImage(true);
 
     tray = new Tray(icon);
-
-    // Prevent menu on left click
     tray.setIgnoreDoubleClickEvents(true);
 
-    // Handle left-click
-    tray.on('click', (event) => {
-        tray.popUpContextMenu(createContextMenu());
-    });
-
-    // Handle right-click
-    tray.on('right-click', (event) => {
-        togglePlayback();
-    });
+    tray.on('click', () => tray.popUpContextMenu(createContextMenu()));
+    tray.on('right-click', () => togglePlayback());
 
     updateTrayMenu();
 }
 
 function startCaffeinate () {
-    stopCaffeinate(); // Clear any existing process
-
-    // Start caffeinate process to prevent sleep
-    caffeinateProcess = spawn('caffeinate', ['-d', '-i', '-m']);
-
+    stopCaffeinate();
+    caffeinateProcess = spawn('caffeinate', ['-dimsu', '-w', process.pid.toString()]);
     caffeinateProcess.on('error', (err) => {
         console.error('Error starting caffeinate:', err);
         stopCaffeinate();
         isPlaying = false;
         updateTrayMenu();
     });
-
     if (duration) {
         endTime = Date.now() + duration;
         startDurationCheck();
@@ -313,125 +243,104 @@ function startCaffeinate () {
 }
 
 function startDurationCheck () {
-    if (durationCheckInterval) {
-        clearInterval(durationCheckInterval);
-    }
-
+    clearInterval(durationCheckInterval);
     durationCheckInterval = setInterval(() => {
-        if (endTime && Date.now() >= endTime) {
-            togglePlayback();
-        } else {
-            updateTrayTooltip();
-        }
+        if (endTime && Date.now() >= endTime) togglePlayback();
+        else updateTrayTooltip();
     }, 1000);
 }
 
 function stopCaffeinate () {
     if (caffeinateProcess) {
-        caffeinateProcess.kill();
+        try {
+            process.kill(caffeinateProcess.pid, 'SIGTERM');
+        } catch (err) {
+            console.warn('Failed to kill caffeinate process:', err.message);
+        }
         caffeinateProcess = null;
     }
 
-    if (durationCheckInterval) {
-        clearInterval(durationCheckInterval);
-        durationCheckInterval = null;
-    }
-
+    clearInterval(durationCheckInterval);
+    durationCheckInterval = null;
     endTime = null;
 }
 
 function setDuration (ms) {
     duration = ms;
-    if (isPlaying) {
-        startCaffeinate();
-    }
+    if (isPlaying) startCaffeinate();
     updateTrayMenu();
 }
 
 function formatTimeRemaining () {
     if (!endTime) return 'Running indefinitely';
-
     const remaining = Math.max(0, endTime - Date.now());
     const minutes = Math.floor(remaining / 60000);
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-
-    if (hours > 0) {
-        return `${hours}h ${mins}m remaining`;
-    }
-    return `${mins}m remaining`;
+    return hours > 0 ? `${hours}h ${mins}m remaining` : `${mins}m remaining`;
 }
 
 function togglePlayback () {
     isPlaying = !isPlaying;
-
-    if (isPlaying) {
-        playSound(true);
-        startCaffeinate();
-    } else {
-        playSound(false);
-        stopCaffeinate();
-    }
-
+    playSound(isPlaying);
+    isPlaying ? startCaffeinate() : stopCaffeinate();
     updateTrayMenu();
 }
 
 function updateTrayTooltip () {
-    if (!isPlaying) {
-        tray.setToolTip('Insomnia - Stopped');
-        return;
-    }
-
-    tray.setToolTip(`Insomnia - ${formatTimeRemaining()}`);
+    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}` : 'Insomnia - Stopped');
 }
 
 function updateTrayMenu () {
     const iconPaths = getIconPaths();
     const iconPath = isPlaying ? iconPaths.active : iconPaths.inactive;
     try {
-        const icon = nativeImage.createFromPath(path.join(__dirname, iconPath));
+        const icon = nativeImage.createFromPath(iconPath);
         icon.setTemplateImage(true);
         tray.setImage(icon);
     } catch (error) {
         console.error('Error updating tray icon:', error);
-        // Fallback to default icon if alternative icon fails to load
-        const defaultIcon = nativeImage.createFromPath(path.join(__dirname, isPlaying ? 'icon-active.png' : 'icon.png'));
-        defaultIcon.setTemplateImage(true);
-        tray.setImage(defaultIcon);
+        const fallback = nativeImage.createFromPath(path.join(ASSETS_PATH, isPlaying ? 'icon-active.png' : 'icon.png'));
+        fallback.setTemplateImage(true);
+        tray.setImage(fallback);
     }
-
     updateTrayTooltip();
 }
 
-
-// Initialize app
+// Initialize
 app.whenReady().then(async () => {
-    if (process.platform === 'darwin' && app.dock) {
-        await app.dock.hide();
-    }
+    if (process.platform === 'darwin' && app.dock) await app.dock.hide();
     loadSettings();
     updateLoginSettings(settings.startAtLogin);
     duration = settings.defaultDuration === 'null' ? null : parseInt(settings.defaultDuration);
     createWindow();
+    const { shell } = require('electron');
+
+    // Open external links in default browser (instead of new Electron window)
+    app.on('web-contents-created', (_, contents) => {
+        contents.setWindowOpenHandler(({ url }) => {
+            // Open any external link in default browser
+            if (!url.startsWith('file://')) {
+                shell.openExternal(url);
+                return { action: 'deny' };
+            }
+            return { action: 'allow' };
+        });
+
+        // Also intercept regular link clicks (without target="_blank")
+        contents.on('will-navigate', (event, url) => {
+            if (!url.startsWith('file://')) {
+                event.preventDefault();
+                shell.openExternal(url);
+            }
+        });
+    });
+
     createTray();
 }).catch(console.error);
 
 // Cleanup
-app.on('before-quit', () => {
-    stopCaffeinate();
-});
-
-app.on('window-all-closed', (e) => {
-    e.preventDefault();
-});
-
-// Handle process termination
-process.on('SIGTERM', () => {
-    stopCaffeinate();
-    app.quit();
-});
-
-process.on('SIGINT', () => {
-    stopCaffeinate();
-    app.quit();
-});
+app.on('before-quit', stopCaffeinate);
+app.on('window-all-closed', (e) => e.preventDefault());
+process.on('SIGTERM', () => { stopCaffeinate(); app.quit(); });
+process.on('SIGINT', () => { stopCaffeinate(); app.quit(); });

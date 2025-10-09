@@ -1,8 +1,8 @@
 {
   "name": "mac-insomnia",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Mac Insomnia",
-  "main": "main.js",
+  "main": "main/main.js",
   "scripts": {
     "start": "electron . 2>/dev/null",
     "build": "electron-builder"
@@ -19,11 +19,22 @@
       "target": [
         "dmg"
       ],
-      "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "hardenedRuntime": true,
       "gatekeeperAssess": false
-    }
+    },
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "build/icon.icns",
+      "package.json"
+    ],
+    "asarUnpack": [
+  "assets",
+  "renderer"
+]
   },
   "devDependencies": {
     "electron": "^33.0.2",
