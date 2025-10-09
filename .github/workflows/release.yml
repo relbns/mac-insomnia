@@ -8,6 +8,8 @@ on:
 jobs:
   release:
     runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,11 +24,3 @@ jobs:
 
       - name: Build app
         run: npm run build
-
-      - name: Upload release artifacts
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
