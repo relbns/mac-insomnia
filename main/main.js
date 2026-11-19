@@ -1,7 +1,8 @@
-const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain } = require('electron');
+const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec } = require('child_process');
+const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
 // Paths
 const ASSETS_PATH = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets');
@@ -14,7 +15,8 @@ let settings = {
     defaultDuration: null, // null = infinite
     iconSet: 'set1',
     soundEnabled: true,
-    startAtLogin: false
+    startAtLogin: false,
+    smartMode: false
 };
 
 // Helpers
@@ -53,6 +55,8 @@ let caffeinateProcess = null;
 let duration = null;
 let endTime = null;
 let durationCheckInterval = null;
+let claudeWatcher = null;
+const pendingUrls = [];
 
 // Create hidden helper window
 function createWindow () {
@@ -72,7 +76,7 @@ ipcMain.on('save-settings', (event, newSettings) => {
     if (isDevelopment()) newSettings.startAtLogin = false;
 
     const previousIconSet = settings.iconSet;
-    saveSettings(newSettings);
+    saveSettings({ ...settings, ...newSettings });
     updateLoginSettings(newSettings.startAtLogin);
 
     if (newSettings.iconSet !== previousIconSet) updateTrayMenu();
@@ -183,6 +187,71 @@ function formatDurationLabel (ms) {
     return `${minutes} minutes`;
 }
 
+function claudeHooksInstalled () {
+    try {
+        return hasHooks(readClaudeSettings());
+    } catch {
+        return false;
+    }
+}
+
+function smartModeKind () {
+    return claudeHooksInstalled() ? 'hooks' : 'scan';
+}
+
+function applySmartMode () {
+    if (!claudeWatcher) return;
+    if (settings.smartMode) claudeWatcher.start(smartModeKind());
+    else claudeWatcher.stop();
+}
+
+function toggleSmartMode () {
+    saveSettings({ ...settings, smartMode: !settings.smartMode });
+    applySmartMode();
+}
+
+function smartStatusLabel () {
+    const n = claudeWatcher?.count || 0;
+    if (claudeWatcher?.mode === 'hooks') return n ? `Claude is working in ${n} session${n > 1 ? 's' : ''}` : 'Claude is idle';
+    return `${n} Claude Code process${n === 1 ? '' : 'es'} open (hooks not installed)`;
+}
+
+async function changeClaudeHooks (install) {
+    let current;
+    try {
+        current = readClaudeSettings();
+    } catch (error) {
+        dialog.showErrorBox('Could not read Claude Code settings', `${CLAUDE_SETTINGS} is not valid JSON, so it was left unchanged.\n\n${error.message}`);
+        return;
+    }
+    const { response } = await dialog.showMessageBox({
+        type: 'question',
+        message: install ? 'Install Claude Code hooks?' : 'Remove Claude Code hooks?',
+        detail: install
+            ? `Adds UserPromptSubmit, Stop and SessionEnd hooks to ${CLAUDE_SETTINGS}. They tell Mac Insomnia when Claude starts and finishes a turn, so the Mac stays awake only while Claude is working. A backup of the file is saved next to it.`
+            : `Removes the Mac Insomnia hooks from ${CLAUDE_SETTINGS}. Other hooks are kept. A backup of the file is saved next to it.`,
+        buttons: [install ? 'Install' : 'Remove', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+    });
+    if (response !== 0) return;
+    try {
+        writeClaudeSettings(install ? addHooks(current) : removeHooks(current));
+    } catch (error) {
+        dialog.showErrorBox('Could not update Claude Code settings', error.message);
+        return;
+    }
+    applySmartMode();
+}
+
+function handleUrl (url) {
+    if (!claudeWatcher) {
+        pendingUrls.push(url);
+        return;
+    }
+    claudeWatcher.handleUrl(url).catch((error) => console.error('Claude hook URL:', error));
+}
+
 function createContextMenu () {
     return Menu.buildFromTemplate([
         {
@@ -199,6 +268,12 @@ function createContextMenu () {
                 { label: '2 hours', type: 'radio', checked: duration === 2 * 60 * 60 * 1000, click: () => setDuration(2 * 60 * 60 * 1000) }
             ]
         },
+        { type: 'separator' },
+        { label: 'Smart Mode: Keep Awake While Claude Works', type: 'checkbox', checked: settings.smartMode, click: () => toggleSmartMode() },
+        ...(settings.smartMode ? [{ label: smartStatusLabel(), enabled: false }] : []),
+        claudeHooksInstalled()
+            ? { label: 'Remove Claude Code Hooks…', click: () => changeClaudeHooks(false) }
+            : { label: 'Install Claude Code Hooks…', click: () => changeClaudeHooks(true) },
         { type: 'separator' },
         { label: 'Settings', click: () => createSettingsWindow() },
         { label: 'About', click: () => createAboutWindow() },
@@ -288,12 +363,14 @@ function togglePlayback () {
 }
 
 function updateTrayTooltip () {
-    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}` : 'Insomnia - Stopped');
+    const smart = settings.smartMode ? ` - ${smartStatusLabel()}` : '';
+    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${smart}` : `Insomnia - Stopped${smart}`);
 }
 
 function updateTrayMenu () {
     const iconPaths = getIconPaths();
-    const iconPath = isPlaying ? iconPaths.active : iconPaths.inactive;
+    const awake = isPlaying || Boolean(claudeWatcher?.count);
+    const iconPath = awake ? iconPaths.active : iconPaths.inactive;
     try {
         const icon = nativeImage.createFromPath(iconPath);
         icon.setTemplateImage(true);
@@ -337,10 +414,22 @@ app.whenReady().then(async () => {
     });
 
     createTray();
+    if (app.isPackaged) app.setAsDefaultProtocolClient(URL_SCHEME);
+    claudeWatcher = new ClaudeWatcher({ onChange: () => tray && updateTrayMenu() });
+    applySmartMode();
+    pendingUrls.splice(0).forEach(handleUrl);
 }).catch(console.error);
 
+app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleUrl(url);
+});
+
 // Cleanup
-app.on('before-quit', stopCaffeinate);
+app.on('before-quit', () => {
+    stopCaffeinate();
+    claudeWatcher?.stop();
+});
 app.on('window-all-closed', (e) => e.preventDefault());
 process.on('SIGTERM', () => { stopCaffeinate(); app.quit(); });
 process.on('SIGINT', () => { stopCaffeinate(); app.quit(); });

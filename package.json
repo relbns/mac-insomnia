@@ -5,7 +5,8 @@
   "main": "main/main.js",
   "scripts": {
     "start": "electron . 2>/dev/null",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "Ariel Benesh",
@@ -41,6 +42,14 @@
         "owner": "relbns",
         "repo": "mac-insomnia",
         "releaseType": "release"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Mac Insomnia",
+        "schemes": [
+          "mac-insomnia"
+        ]
       }
     ]
   },
