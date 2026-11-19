@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
+const { parseCommandUrl } = require('./url-commands');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : path.join(__dirname, '..');
@@ -270,12 +271,21 @@ async function changeClaudeHooks (install) {
     refreshTray();
 }
 
+function runUrlCommand ({ action, durationMs }) {
+    if (action === 'stop') return stopPlayback();
+    if (action === 'toggle') return togglePlayback();
+    if (durationMs !== undefined) setDuration(durationMs);
+    startPlayback();
+}
+
 function handleUrl (url) {
     if (!claudeWatcher) {
         pendingUrls.push(url);
         return;
     }
-    claudeWatcher.handleUrl(url);
+    const command = parseCommandUrl(url);
+    if (command) runUrlCommand(command);
+    else claudeWatcher.handleUrl(url);
 }
 
 function createContextMenu () {
