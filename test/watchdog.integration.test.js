@@ -17,24 +17,30 @@ function setup (t) {
     t.after(() => {
         owner.kill('SIGKILL');
         controller.killToken();
+        try {
+            execFileSync('/bin/launchctl', ['bootout', `${domain}/${label}`], { stdio: 'ignore' });
+        } catch {}
         fs.rmSync(dir, { recursive: true, force: true });
     });
     const runner = {
         readPmset: () => new Promise((resolve, reject) => execFile(fakePmset, ['-g'], (e, out) => (e ? reject(e) : resolve(out)))),
         osascript: (script) => new Promise((resolve, reject) => execFile('/usr/bin/osascript', ['-e', script], (e, out, err) => (e ? reject(Object.assign(e, { stderr: err })) : resolve(out)))),
-        spawnToken: (pid) => spawn('/usr/bin/caffeinate', ['-s', '-w', String(pid)], { stdio: 'ignore' })
+        spawnToken: (pid) => spawn('/usr/bin/caffeinate', ['-s', '-w', String(pid)], { stdio: 'ignore' }),
+        launchdPrint: (target) => new Promise((resolve) => execFile('/bin/launchctl', ['print', target], (e, out) => resolve(e ? '' : out)))
     };
+    const label = `com.relbns.mac-insomnia.test.${process.pid}.${Math.random().toString(36).slice(2, 8)}`;
+    const domain = `gui/${process.getuid()}`;
     const controller = new LidSleepController({
         markerPath: path.join(dir, 'marker.json'),
         ownerPid: owner.pid,
         runner,
         privileged: false,
-        commandOptions: { pmsetPath: fakePmset }
+        commandOptions: { pmsetPath: fakePmset, label, domain, plistPath: path.join(dir, 'watchdog.plist') }
     });
     const read = () => (fs.existsSync(state) ? fs.readFileSync(state, 'utf8').trim() : 'unset');
     const watchdogs = () => {
         try {
-            return execFileSync('pgrep', ['-f', `${dir}/fake pmset' -a disablesleep 0`], { encoding: 'utf8' }).trim();
+            return execFileSync('/bin/launchctl', ['print', `${domain}/${label}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
         } catch {
             return '';
         }
@@ -51,19 +57,18 @@ const waitFor = async (fn, ms = 4000) => {
     return fn();
 };
 
-test('turning the mode off restores sleep through the real watchdog and leaves no watchdog process behind', { skip: !darwin }, async (t) => {
+test('turning the mode off restores sleep through the launchd watchdog, which then removes itself', { skip: !darwin }, async (t) => {
     const { owner, controller, read, watchdogs } = setup(t);
     assert.equal((await controller.enable()).ok, true);
     assert.equal(read(), '1');
-    assert.notEqual(watchdogs(), '', 'watchdog survives osascript exit');
-    assert.equal(controller.watchdogAlive(), true, 'watchdog pid file points at a live process');
+    assert.match(watchdogs(), /state = running/, 'launchd keeps the watchdog running after osascript exits');
     const result = await controller.disable({ allowPrompt: false });
     assert.deepEqual(result, { restored: true, via: 'watchdog' });
     assert.equal(read(), '0');
     assert.equal(await waitFor(() => watchdogs() === ''), true);
 });
 
-test('a SIGKILLed app restores sleep and leaves no process behind', { skip: !darwin }, async (t) => {
+test('a SIGKILLed app restores sleep and leaves no launchd job behind', { skip: !darwin }, async (t) => {
     const { owner, controller, read, watchdogs } = setup(t);
     assert.equal((await controller.enable()).ok, true);
     const tokenPid = controller.token.pid;

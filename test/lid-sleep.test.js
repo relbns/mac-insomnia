@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const {
-    LidSleepController, parseSleepDisabled, buildEnableCommand, buildOsascript, decideStartupAction, isUserCancel
+    LidSleepController, parseSleepDisabled, buildEnableCommand, buildOsascript, decideStartupAction, isUserCancel, parseLaunchdRunning
 } = require('../main/lid-sleep');
 
 const cancelError = () => Object.assign(new Error('x'), { stderr: 'User canceled. (-128)' });
@@ -30,11 +30,22 @@ test('decideStartupAction restores only what this app left behind and fails clos
     }
 });
 
-test('enable command sets disablesleep, then starts the watchdog and records its pid', () => {
-    const cmd = buildEnableCommand({ tokenPid: 4242, watchdogPidFile: '/Users/a/Application Support/x.pid' });
-    assert.equal(cmd, `'/usr/bin/pmset' -a disablesleep 1 && { /usr/bin/nohup /bin/sh -c ''\\''/usr/bin/caffeinate'\\'' -w 4242; '\\''/usr/bin/pmset'\\'' -a disablesleep 0' >/dev/null 2>&1 & echo $! > '/Users/a/Application Support/x.pid'; }`);
-    assert.throws(() => buildEnableCommand({ tokenPid: 0, watchdogPidFile: '/x' }));
-    assert.throws(() => buildEnableCommand({ tokenPid: '1; rm -rf /', watchdogPidFile: '/x' }));
+test('enable command turns sleep off, then bootstraps a one-shot launchd watchdog on the token, or rolls back', () => {
+    const cmd = buildEnableCommand({ tokenPid: 4242, plistPath: '/tmp/Application Support/w.plist' });
+    assert.ok(cmd.startsWith('/bin/launchctl bootout system/com.relbns.mac-insomnia.lid-watchdog >/dev/null 2>&1; '));
+    assert.match(cmd, /'\/usr\/bin\/pmset' -a disablesleep 1 && \{ \/bin\/launchctl bootstrap system '\/tmp\/Application Support\/w.plist' \|\| \{ '\/usr\/bin\/pmset' -a disablesleep 0; exit 1; \}; \}$/);
+    assert.ok(cmd.indexOf('disablesleep 1') < cmd.indexOf('launchctl bootstrap'), 'sleep is disabled before the watchdog can run, so a dead token restores it');
+    assert.match(cmd, /-w 4242; /);
+    assert.match(cmd, /<key>KeepAlive<\/key><false\/>/);
+    assert.throws(() => buildEnableCommand({ tokenPid: 0 }));
+    assert.throws(() => buildEnableCommand({ tokenPid: '1; rm -rf /' }));
+    assert.throws(() => buildEnableCommand({ tokenPid: 1, domain: 'system; rm -rf /' }));
+});
+
+test('parseLaunchdRunning only accepts the running state', () => {
+    assert.equal(parseLaunchdRunning('com.x = {\n\tstate = running\n\tpid = 9\n'), true);
+    assert.equal(parseLaunchdRunning('com.x = {\n\tstate = xpcproxy\n\t\tstate = active\n'), false);
+    assert.equal(parseLaunchdRunning(''), false);
 });
 
 test('osascript escapes quotes and asks for admin only when privileged', () => {
@@ -66,9 +77,10 @@ function fakeController (t, { initial = 0, enableSets = 1, watchdogRestores = tr
             if (script.includes('disablesleep 1')) {
                 state.sleepDisabled = enableSets;
                 if (killed.length && watchdogRestores) state.sleepDisabled = 0;
-                if (watchdogStarts) fs.writeFileSync(controller.watchdogPidFile, String(process.pid));
+                state.watchdog = watchdogStarts;
             } else state.sleepDisabled = 0;
         },
+        launchdPrint: async () => (state.watchdog ? '\tstate = running\n' : ''),
         spawnToken: () => {
             const token = new EventEmitter();
             token.pid = 777;

@@ -4,6 +4,7 @@ const { execFile, spawn } = require('child_process');
 const PMSET = '/usr/bin/pmset';
 const CAFFEINATE = '/usr/bin/caffeinate';
 const USER_CANCELED = -128;
+const WATCHDOG_LABEL = 'com.relbns.mac-insomnia.lid-watchdog';
 
 function parseSleepDisabled (pmsetOutput) {
     const match = String(pmsetOutput).match(/^\s*SleepDisabled\s+(\d+)/m);
@@ -18,11 +19,31 @@ function appleScriptString (value) {
     return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function buildEnableCommand ({ tokenPid, watchdogPidFile, pmsetPath = PMSET, caffeinatePath = CAFFEINATE }) {
+function xmlEscape (value) {
+    return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function buildWatchdogPlist ({ tokenPid, label, domain, plistPath, pmsetPath, caffeinatePath }) {
+    const script = [
+        `${shellQuote(caffeinatePath)} -w ${tokenPid}`,
+        `${shellQuote(pmsetPath)} -a disablesleep 0`,
+        `/bin/rm -f ${shellQuote(plistPath)}`,
+        `/bin/launchctl bootout ${domain}/${label}`
+    ].join('; ');
+    const args = ['/bin/sh', '-c', script].map((a) => `<string>${xmlEscape(a)}</string>`).join('');
+    return '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+        + `<plist version="1.0"><dict><key>Label</key><string>${xmlEscape(label)}</string><key>ProgramArguments</key><array>${args}</array>`
+        + '<key>RunAtLoad</key><true/><key>KeepAlive</key><false/><key>AbandonProcessGroup</key><true/></dict></plist>';
+}
+
+function buildEnableCommand ({ tokenPid, label = WATCHDOG_LABEL, domain = 'system', plistPath = `/var/run/${WATCHDOG_LABEL}.plist`, pmsetPath = PMSET, caffeinatePath = CAFFEINATE }) {
     if (!Number.isInteger(tokenPid) || tokenPid <= 0) throw new Error(`invalid token pid: ${tokenPid}`);
-    if (!watchdogPidFile) throw new Error('missing watchdog pid file');
-    const watchdog = `${shellQuote(caffeinatePath)} -w ${tokenPid}; ${shellQuote(pmsetPath)} -a disablesleep 0`;
-    return `${shellQuote(pmsetPath)} -a disablesleep 1 && { /usr/bin/nohup /bin/sh -c ${shellQuote(watchdog)} >/dev/null 2>&1 & echo $! > ${shellQuote(watchdogPidFile)}; }`;
+    if (!/^[\w.-]+$/.test(label) || !/^(system|gui\/\d+)$/.test(domain)) throw new Error('invalid launchd label or domain');
+    const plist = buildWatchdogPlist({ tokenPid, label, domain, plistPath, pmsetPath, caffeinatePath });
+    return `/bin/launchctl bootout ${domain}/${label} >/dev/null 2>&1; `
+        + `/usr/bin/printf '%s' ${shellQuote(plist)} > ${shellQuote(plistPath)} && /bin/chmod 644 ${shellQuote(plistPath)} && `
+        + `${shellQuote(pmsetPath)} -a disablesleep 1 && `
+        + `{ /bin/launchctl bootstrap ${domain} ${shellQuote(plistPath)} || { ${shellQuote(pmsetPath)} -a disablesleep 0; exit 1; }; }`;
 }
 
 function buildRestoreCommand ({ pmsetPath = PMSET } = {}) {
@@ -43,14 +64,8 @@ function decideStartupAction ({ sleepDisabled, markerExists }) {
     return 'none';
 }
 
-function isProcessAlive (pid) {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return error.code === 'EPERM';
-    }
+function parseLaunchdRunning (printOutput) {
+    return /^\s*state = running\s*$/m.test(String(printOutput));
 }
 
 function isUserCancel (error) {
@@ -70,14 +85,16 @@ function defaultRunner () {
                 } else resolve(stdout);
             });
         }),
-        spawnToken: (ownerPid) => spawn(CAFFEINATE, ['-s', '-w', String(ownerPid)], { stdio: 'ignore' })
+        spawnToken: (ownerPid) => spawn(CAFFEINATE, ['-s', '-w', String(ownerPid)], { stdio: 'ignore' }),
+        launchdPrint: (target) => new Promise((resolve) => {
+            execFile('/bin/launchctl', ['print', target], { timeout: 5000 }, (err, stdout) => resolve(err ? '' : stdout));
+        })
     };
 }
 
 class LidSleepController {
     constructor ({ markerPath, ownerPid = process.pid, runner = defaultRunner(), commandOptions = {}, privileged = true, restoreWaitMs = 3000, restorePollMs = 250, onUnexpectedEnd = () => {} }) {
         this.markerPath = markerPath;
-        this.watchdogPidFile = `${markerPath}.watchdog-pid`;
         this.ownerPid = ownerPid;
         this.runner = runner;
         this.commandOptions = commandOptions;
@@ -125,14 +142,15 @@ class LidSleepController {
 
     clearMarker () {
         fs.rmSync(this.markerPath, { force: true });
-        fs.rmSync(this.watchdogPidFile, { force: true });
     }
 
-    watchdogAlive () {
-        try {
-            return isProcessAlive(Number(fs.readFileSync(this.watchdogPidFile, 'utf8').trim()));
-        } catch {
-            return false;
+    async watchdogRunning () {
+        const { label = WATCHDOG_LABEL, domain = 'system' } = this.commandOptions;
+        const deadline = Date.now() + this.restoreWaitMs;
+        while (true) {
+            if (parseLaunchdRunning(await this.runner.launchdPrint(`${domain}/${label}`))) return true;
+            if (Date.now() >= deadline) return false;
+            await new Promise((resolve) => setTimeout(resolve, this.restorePollMs));
         }
     }
 
@@ -156,10 +174,9 @@ class LidSleepController {
             this.token = token;
             this.enabled = false;
             token.once('exit', () => this.handleTokenExit(token));
-            fs.rmSync(this.watchdogPidFile, { force: true });
             this.writeMarker();
             await this.runner.osascript(buildOsascript({
-                command: buildEnableCommand({ tokenPid: token.pid, watchdogPidFile: this.watchdogPidFile, ...this.commandOptions }),
+                command: buildEnableCommand({ tokenPid: token.pid, ...this.commandOptions }),
                 prompt: 'Mac Insomnia needs your password to keep the Mac awake with the lid closed. Normal sleep is restored when the mode ends.',
                 privileged: this.privileged
             }));
@@ -174,7 +191,7 @@ class LidSleepController {
             if (restored) this.clearMarker();
             return { ok: false, reason: 'stopped', restored };
         }
-        if (!this.watchdogAlive()) {
+        if (!(await this.watchdogRunning())) {
             this.killToken();
             const restore = await this.restoreWithPrompt();
             return { ok: false, restored: restore.restored, error: new Error('The restore watchdog did not start, so lid closed mode was turned off') };
@@ -247,5 +264,6 @@ module.exports = {
     buildOsascript,
     decideStartupAction,
     isUserCancel,
-    isProcessAlive
+    parseLaunchdRunning,
+    WATCHDOG_LABEL
 };
