@@ -195,13 +195,13 @@ function claudeHooksInstalled () {
     }
 }
 
-function smartModeKind () {
+function detectSmartModeSource () {
     return claudeHooksInstalled() ? 'hooks' : 'scan';
 }
 
 function applySmartMode () {
     if (!claudeWatcher) return;
-    if (settings.smartMode) claudeWatcher.start(smartModeKind());
+    if (settings.smartMode) claudeWatcher.start(detectSmartModeSource());
     else claudeWatcher.stop();
 }
 
@@ -217,9 +217,8 @@ function smartStatusLabel () {
 }
 
 async function changeClaudeHooks (install) {
-    let current;
     try {
-        current = readClaudeSettings();
+        readClaudeSettings();
     } catch (error) {
         dialog.showErrorBox('Could not read Claude Code settings', `${CLAUDE_SETTINGS} is not valid JSON, so it was left unchanged.\n\n${error.message}`);
         return;
@@ -228,7 +227,7 @@ async function changeClaudeHooks (install) {
         type: 'question',
         message: install ? 'Install Claude Code hooks?' : 'Remove Claude Code hooks?',
         detail: install
-            ? `Adds UserPromptSubmit, Stop and SessionEnd hooks to ${CLAUDE_SETTINGS}. They tell Mac Insomnia when Claude starts and finishes a turn, so the Mac stays awake only while Claude is working. A backup of the file is saved next to it.`
+            ? `Adds hooks to ${CLAUDE_SETTINGS} that tell Mac Insomnia when Claude starts and finishes a turn, so the Mac stays awake only while Claude is working. Claude Code sessions that are already open pick up the hooks after a restart. A backup of the file is saved next to it.`
             : `Removes the Mac Insomnia hooks from ${CLAUDE_SETTINGS}. Other hooks are kept. A backup of the file is saved next to it.`,
         buttons: [install ? 'Install' : 'Remove', 'Cancel'],
         defaultId: 0,
@@ -236,7 +235,8 @@ async function changeClaudeHooks (install) {
     });
     if (response !== 0) return;
     try {
-        writeClaudeSettings(install ? addHooks(current) : removeHooks(current));
+        const latest = readClaudeSettings();
+        writeClaudeSettings(install ? addHooks(latest) : removeHooks(latest));
     } catch (error) {
         dialog.showErrorBox('Could not update Claude Code settings', error.message);
         return;
@@ -249,7 +249,7 @@ function handleUrl (url) {
         pendingUrls.push(url);
         return;
     }
-    claudeWatcher.handleUrl(url).catch((error) => console.error('Claude hook URL:', error));
+    claudeWatcher.handleUrl(url);
 }
 
 function createContextMenu () {
@@ -377,7 +377,7 @@ function updateTrayMenu () {
         tray.setImage(icon);
     } catch (error) {
         console.error('Error updating tray icon:', error);
-        const fallback = nativeImage.createFromPath(path.join(ASSETS_PATH, isPlaying ? 'icon-active.png' : 'icon.png'));
+        const fallback = nativeImage.createFromPath(path.join(ASSETS_PATH, awake ? 'icon-active.png' : 'icon.png'));
         fallback.setTemplateImage(true);
         tray.setImage(fallback);
     }
@@ -415,7 +415,11 @@ app.whenReady().then(async () => {
 
     createTray();
     if (app.isPackaged) app.setAsDefaultProtocolClient(URL_SCHEME);
-    claudeWatcher = new ClaudeWatcher({ onChange: () => tray && updateTrayMenu() });
+    claudeWatcher = new ClaudeWatcher({
+        onChange: () => tray && updateTrayMenu(),
+        onError: (error) => console.error('Smart Mode:', error)
+    });
+    claudeWatcher.sweepOrphans();
     applySmartMode();
     pendingUrls.splice(0).forEach(handleUrl);
 }).catch(console.error);

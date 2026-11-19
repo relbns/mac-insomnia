@@ -5,15 +5,20 @@ const { execFile, spawn } = require('child_process');
 
 const URL_SCHEME = 'mac-insomnia';
 const HOOK_MARKER = `${URL_SCHEME}://claude`;
-const HOOK_EVENTS = {
-    UserPromptSubmit: 'busy',
-    Stop: 'idle',
-    SessionEnd: 'idle'
-};
+const APP_PROCESS_NAME = 'Mac Insomnia';
+const CLAUDE_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 const SCAN_INTERVAL_MS = 30 * 1000;
+const MAX_HOLD_SECONDS = 3 * 60 * 60 - 7;
+const HOOKS = [
+    { event: 'UserPromptSubmit', state: 'busy' },
+    { event: 'Stop', state: 'idle' },
+    { event: 'StopFailure', state: 'idle' },
+    { event: 'SessionEnd', state: 'idle' },
+    { event: 'Notification', matcher: 'idle_prompt', state: 'idle' }
+];
 
 function hookCommand (state) {
-    return `/usr/bin/open -g "${HOOK_MARKER}?state=${state}&pid=$PPID" >/dev/null 2>&1 &`;
+    return `/usr/bin/pgrep -xq "${APP_PROCESS_NAME}" && /usr/bin/open -g "${HOOK_MARKER}?state=${state}&pid=$PPID" >/dev/null 2>&1 &`;
 }
 
 function parseClaudeUrl (url) {
@@ -30,15 +35,17 @@ function parseClaudeUrl (url) {
     return { state, pid };
 }
 
-function isClaudeCommand (comm) {
-    return path.basename(String(comm).trim()) === 'claude';
+function isClaudeCommand (args) {
+    const text = String(args).trim();
+    const executable = text.split(/\s+/)[0] || '';
+    return path.basename(executable) === 'claude' || /\/@anthropic-ai\/claude-code\/cli\.m?js(\s|$)/.test(text);
 }
 
 function parseProcessTable (output) {
     const table = new Map();
     for (const line of String(output).split('\n')) {
         const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-        if (match) table.set(Number(match[1]), { ppid: Number(match[2]), comm: match[3] });
+        if (match) table.set(Number(match[1]), { ppid: Number(match[2]), args: match[3] });
     }
     return table;
 }
@@ -48,29 +55,40 @@ function findClaudeAncestor (pid, table, maxDepth = 6) {
     for (let depth = 0; depth <= maxDepth && current > 1; depth++) {
         const row = table.get(current);
         if (!row) return null;
-        if (isClaudeCommand(row.comm)) return current;
+        if (isClaudeCommand(row.args)) return current;
         current = row.ppid;
     }
     return null;
 }
 
 function claudePids (table) {
-    return [...table].filter(([, row]) => isClaudeCommand(row.comm)).map(([pid]) => pid);
+    return [...table].filter(([, row]) => isClaudeCommand(row.args)).map(([pid]) => pid);
 }
 
-function isOurHook (entry) {
-    return (entry?.hooks || []).some((hook) => String(hook.command || '').includes(HOOK_MARKER));
+function holdArgs (pid) {
+    return ['-i', '-s', '-t', String(MAX_HOLD_SECONDS), '-w', String(pid)];
+}
+
+function orphanedHoldPids (table) {
+    const pattern = new RegExp(`^/usr/bin/caffeinate -i -s -t ${MAX_HOLD_SECONDS} -w \\d+$`);
+    return [...table].filter(([, row]) => row.ppid === 1 && pattern.test(row.args)).map(([pid]) => pid);
+}
+
+function isOurCommand (hook) {
+    return String(hook?.command || '').includes(HOOK_MARKER);
 }
 
 function hasHooks (settings) {
-    return Object.keys(HOOK_EVENTS).every((event) => (settings?.hooks?.[event] || []).some(isOurHook));
+    return HOOKS.every(({ event }) => (settings?.hooks?.[event] || []).some((group) => (group.hooks || []).some(isOurCommand)));
 }
 
 function removeHooks (settings) {
     const next = structuredClone(settings || {});
-    for (const event of Object.keys(HOOK_EVENTS)) {
+    for (const event of new Set(HOOKS.map((h) => h.event))) {
         if (!next.hooks?.[event]) continue;
-        next.hooks[event] = next.hooks[event].filter((entry) => !isOurHook(entry));
+        next.hooks[event] = next.hooks[event]
+            .map((group) => ({ ...group, hooks: (group.hooks || []).filter((hook) => !isOurCommand(hook)) }))
+            .filter((group) => group.hooks.length > 0);
         if (next.hooks[event].length === 0) delete next.hooks[event];
     }
     if (next.hooks && Object.keys(next.hooks).length === 0) delete next.hooks;
@@ -80,57 +98,68 @@ function removeHooks (settings) {
 function addHooks (settings) {
     const next = removeHooks(settings);
     next.hooks ??= {};
-    for (const [event, state] of Object.entries(HOOK_EVENTS)) {
+    for (const { event, matcher, state } of HOOKS) {
         next.hooks[event] ??= [];
-        next.hooks[event].push({ hooks: [{ type: 'command', command: hookCommand(state) }] });
+        next.hooks[event].push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: hookCommand(state) }] });
     }
     return next;
 }
-
-function defaultRunner () {
-    return {
-        processTable: () => new Promise((resolve, reject) => {
-            execFile('/bin/ps', ['-axo', 'pid=,ppid=,comm='], { timeout: 5000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => (err ? reject(err) : resolve(parseProcessTable(out))));
-        }),
-        holdWhileAlive: (pid) => spawn('/usr/bin/caffeinate', ['-i', '-s', '-w', String(pid)], { stdio: 'ignore' })
-    };
-}
-
-const CLAUDE_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 
 function readClaudeSettings (file = CLAUDE_SETTINGS) {
     if (!fs.existsSync(file)) return {};
     return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function writeClaudeSettings (settings, file = CLAUDE_SETTINGS, now = new Date()) {
-    let backup = null;
-    if (fs.existsSync(file)) {
-        backup = `${file}.bak-mac-insomnia-${now.toISOString().replace(/[:.]/g, '-')}`;
-        fs.copyFileSync(file, backup);
-    } else {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-    }
-    fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
-    return backup;
+function writeClaudeSettings (settings, file = CLAUDE_SETTINGS) {
+    const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const backup = `${target}.bak-mac-insomnia`;
+    if (fs.existsSync(target)) fs.copyFileSync(target, backup);
+    const temp = `${target}.tmp-mac-insomnia-${process.pid}`;
+    fs.writeFileSync(temp, `${JSON.stringify(settings, null, 2)}\n`);
+    fs.renameSync(temp, target);
+    return fs.existsSync(backup) ? backup : null;
+}
+
+function defaultRunner () {
+    return {
+        processTable: () => new Promise((resolve, reject) => {
+            execFile('/bin/ps', ['-axo', 'pid=,ppid=,args='], { timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => (err ? reject(err) : resolve(parseProcessTable(out))));
+        }),
+        holdWhileAlive: (pid) => spawn('/usr/bin/caffeinate', holdArgs(pid), { stdio: 'ignore' }),
+        kill: (pid) => process.kill(pid, 'SIGTERM')
+    };
 }
 
 class ClaudeWatcher {
-    constructor ({ onChange = () => {}, runner = defaultRunner(), scanIntervalMs = SCAN_INTERVAL_MS } = {}) {
+    constructor ({ onChange = () => {}, onError = () => {}, runner = defaultRunner(), scanIntervalMs = SCAN_INTERVAL_MS } = {}) {
         this.onChange = onChange;
+        this.onError = onError;
         this.runner = runner;
         this.scanIntervalMs = scanIntervalMs;
         this.holds = new Map();
         this.mode = 'off';
+        this.generation = 0;
         this.scanTimer = null;
+        this.queue = Promise.resolve();
     }
 
     get count () {
         return this.holds.size;
     }
 
+    enqueue (task) {
+        const run = this.queue.then(task);
+        this.queue = run.catch((error) => this.onError(error));
+        return run.catch((error) => {
+            this.onError(error);
+            return false;
+        });
+    }
+
     start (mode) {
-        this.stop();
+        const keepHolds = this.mode === 'scan' && mode === 'hooks';
+        this.halt({ keepHolds });
         this.mode = mode;
         if (mode === 'scan') {
             this.scan();
@@ -140,23 +169,32 @@ class ClaudeWatcher {
     }
 
     stop () {
-        clearInterval(this.scanTimer);
-        this.scanTimer = null;
-        this.mode = 'off';
-        for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false });
+        this.halt({ keepHolds: false });
         this.onChange();
     }
 
+    halt ({ keepHolds }) {
+        this.generation++;
+        clearInterval(this.scanTimer);
+        this.scanTimer = null;
+        this.mode = 'off';
+        if (!keepHolds) for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false });
+    }
+
     hold (pid) {
-        if (this.holds.has(pid)) return;
+        const previous = this.holds.get(pid);
         const child = this.runner.holdWhileAlive(pid);
-        child.once('error', () => this.release(pid));
+        child.once('error', (error) => {
+            this.onError(error);
+            this.release(pid);
+        });
         child.once('exit', () => {
             if (this.holds.get(pid) !== child) return;
             this.holds.delete(pid);
             this.onChange();
         });
         this.holds.set(pid, child);
+        if (previous) previous.kill('SIGTERM');
         this.onChange();
     }
 
@@ -168,47 +206,51 @@ class ClaudeWatcher {
         if (notify) this.onChange();
     }
 
-    async handleUrl (url) {
+    handleUrl (url) {
         const event = parseClaudeUrl(url);
-        if (!event || this.mode !== 'hooks') return false;
-        let pid = event.pid;
-        try {
-            pid = findClaudeAncestor(event.pid, await this.runner.processTable());
-        } catch {
-            if (event.state === 'busy') return false;
-        }
-        if (!pid) return false;
-        if (event.state === 'idle') this.release(pid);
-        else this.hold(pid);
-        return true;
+        if (!event) return Promise.resolve(false);
+        return this.enqueue(async () => {
+            if (this.mode !== 'hooks') return false;
+            const generation = this.generation;
+            const pid = findClaudeAncestor(event.pid, await this.runner.processTable());
+            if (generation !== this.generation || this.mode !== 'hooks' || !pid) return false;
+            if (event.state === 'idle') this.release(pid);
+            else this.hold(pid);
+            return true;
+        });
     }
 
-    async scan () {
-        if (this.mode !== 'scan') return;
-        let table;
-        try {
-            table = await this.runner.processTable();
-        } catch {
-            return;
-        }
-        const alive = new Set(claudePids(table));
-        for (const pid of alive) this.hold(pid);
+    scan () {
+        return this.enqueue(async () => {
+            if (this.mode !== 'scan') return;
+            const generation = this.generation;
+            const table = await this.runner.processTable();
+            if (generation !== this.generation || this.mode !== 'scan') return;
+            for (const pid of claudePids(table)) if (!this.holds.has(pid)) this.hold(pid);
+        });
+    }
+
+    sweepOrphans () {
+        return this.enqueue(async () => {
+            for (const pid of orphanedHoldPids(await this.runner.processTable())) this.runner.kill(pid);
+        });
     }
 }
 
 module.exports = {
     URL_SCHEME,
-    HOOK_MARKER,
-    ClaudeWatcher,
     CLAUDE_SETTINGS,
-    readClaudeSettings,
-    writeClaudeSettings,
+    MAX_HOLD_SECONDS,
+    ClaudeWatcher,
     hookCommand,
+    holdArgs,
     parseClaudeUrl,
     parseProcessTable,
     findClaudeAncestor,
-    claudePids,
+    orphanedHoldPids,
     hasHooks,
     addHooks,
-    removeHooks
+    removeHooks,
+    readClaudeSettings,
+    writeClaudeSettings
 };
