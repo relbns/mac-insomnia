@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
+const { keepAwakeArgs } = require('./keep-awake-args');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : path.join(__dirname, '..');
@@ -22,7 +23,8 @@ let settings = {
     iconSet: 'set1',
     soundEnabled: true,
     startAtLogin: false,
-    smartMode: false
+    smartMode: false,
+    allowDisplaySleep: false
 };
 
 let tray = null;
@@ -287,6 +289,7 @@ function createContextMenu () {
             label: 'Set Duration',
             submenu: DURATIONS.map(({ label, ms }) => ({ label, type: 'radio', checked: duration === ms, click: () => setDuration(ms) }))
         },
+        { label: 'Let the Display Sleep', type: 'checkbox', checked: settings.allowDisplaySleep, click: () => toggleAllowDisplaySleep() },
         { type: 'separator' },
         ...lidMenuItems(),
         { type: 'separator' },
@@ -348,7 +351,7 @@ function createTray () {
 
 function startCaffeinate () {
     if (caffeinateProcess) return;
-    const child = spawn('/usr/bin/caffeinate', ['-dimsu', '-w', String(process.pid)], { stdio: 'ignore' });
+    const child = spawn('/usr/bin/caffeinate', keepAwakeArgs({ allowDisplaySleep: settings.allowDisplaySleep, ownerPid: process.pid }), { stdio: 'ignore' });
     caffeinateProcess = child;
     child.once('error', (err) => console.error('Error starting caffeinate:', err));
     child.once('exit', () => {
@@ -409,6 +412,16 @@ function stopPlayback () {
 
 function togglePlayback () {
     isPlaying ? stopPlayback() : startPlayback();
+}
+
+function toggleAllowDisplaySleep () {
+    settings.allowDisplaySleep = !settings.allowDisplaySleep;
+    saveSettings();
+    if (caffeinateProcess) {
+        stopCaffeinate();
+        startCaffeinate();
+    }
+    refreshTray();
 }
 
 function setDuration (ms) {
