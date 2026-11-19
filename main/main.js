@@ -4,7 +4,7 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeArgs } = require('./keep-awake-args');
-const { EXTEND_MS, warningDelayMs, extendedEndTime, minutesLeft } = require('./timer-warning');
+const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
 const { parseCommandUrl } = require('./url-commands');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
@@ -43,6 +43,8 @@ let endTime = null;
 let endTimer = null;
 let warnTimer = null;
 let warningNotification = null;
+let timerArmedAt = null;
+let warnedForEndTime = null;
 let soundProcess = null;
 let cachedMenu = null;
 let lidSleep = null;
@@ -124,6 +126,7 @@ const SETTING_APPLIERS = {
     timerWarning: (value) => {
         settings.timerWarning = Boolean(value);
         saveSettings();
+        if (!settings.timerWarning) closeWarning();
         scheduleTimers();
     },
     batteryGuardPercent: (value) => setBatteryGuard(normalizeGuardPercent(value)),
@@ -342,7 +345,7 @@ function createContextMenu () {
     const runLabel = isPlaying ? `Stop Insomnia (${formatTimeRemaining()})` : `Start (${formatDurationLabel(duration)}) Insomnia`;
     return Menu.buildFromTemplate([
         { label: runLabel, click: () => togglePlayback() },
-        ...(isPlaying && endTime ? [{ label: 'Add 30 Minutes', click: () => extendTimer(EXTEND_MS) }] : []),
+        ...(isPlaying && endTime ? [{ label: extendLabel(), click: () => extendTimer() }] : []),
         { type: 'separator' },
         {
             label: 'Set Duration',
@@ -539,6 +542,9 @@ function clearTimers () {
     clearTimeout(warnTimer);
     endTimer = null;
     warnTimer = null;
+}
+
+function closeWarning () {
     warningNotification?.close();
     warningNotification = null;
 }
@@ -547,33 +553,40 @@ function scheduleTimers () {
     clearTimers();
     if (!isPlaying || !endTime) return;
     endTimer = setTimeout(onTimerEnd, Math.max(0, endTime - Date.now()));
-    const delay = settings.timerWarning ? warningDelayMs({ endTime, now: Date.now() }) : null;
-    if (delay !== null) warnTimer = setTimeout(showTimerWarning, delay);
+    const plan = warningPlan({ enabled: settings.timerWarning, endTime, armedAt: timerArmedAt, now: Date.now(), warnedForEndTime });
+    if (plan.action === 'schedule') warnTimer = setTimeout(showTimerWarning, plan.delayMs);
+    if (plan.action === 'show-now') showTimerWarning();
 }
 
 function armTimer () {
     endTime = duration ? Date.now() + duration : null;
+    timerArmedAt = Date.now();
+    warnedForEndTime = null;
+    closeWarning();
     scheduleTimers();
 }
 
 function showTimerWarning () {
     warnTimer = null;
-    if (!isPlaying || !endTime || !Notification.isSupported()) return;
+    if (!isPlaying || !endTime) return;
+    warnedForEndTime = endTime;
+    if (!Notification.isSupported()) return;
     const minutes = minutesLeft({ endTime, now: Date.now() });
     const notification = new Notification({
         title: `Insomnia ends in ${minutes} minute${minutes === 1 ? '' : 's'}`,
-        body: 'Click to keep the Mac awake 30 more minutes.',
-        actions: [{ type: 'button', text: 'Add 30 Minutes' }]
+        body: 'Click to add more time from the Insomnia menu.'
     });
-    notification.on('click', () => extendTimer(EXTEND_MS));
-    notification.on('action', () => extendTimer(EXTEND_MS));
+    notification.on('click', () => showMenu());
     notification.show();
+    closeWarning();
     warningNotification = notification;
 }
 
-function extendTimer (ms) {
+function extendTimer () {
     if (!isPlaying || !endTime) return;
-    endTime = extendedEndTime({ endTime, now: Date.now(), addMs: ms });
+    endTime = extendedEndTime({ endTime, now: Date.now() });
+    timerArmedAt = Date.now();
+    closeWarning();
     scheduleTimers();
     refreshTray();
 }
@@ -604,6 +617,8 @@ function stopPlayback () {
     playSound(false);
     stopCaffeinate();
     clearTimers();
+    closeWarning();
+    warnedForEndTime = null;
     endTime = null;
     if (lidSleep.active) disableLidMode();
     else if (lidSleep.pending) lidSleep.killToken();
@@ -793,10 +808,7 @@ if (!app.requestSingleInstanceLock()) {
         powerMonitor.on('on-battery', () => onPowerSourceChange(true));
         powerMonitor.on('on-ac', () => onPowerSourceChange(false));
         powerMonitor.on('resume', () => {
-            if (isPlaying && endTime) {
-                if (Date.now() >= endTime) stopPlayback();
-                else scheduleTimers();
-            }
+            if (isPlaying && endTime) scheduleTimers();
             const battery = powerMonitor.isOnBatteryPower();
             if (battery !== onBattery) onPowerSourceChange(battery);
         });
@@ -822,6 +834,7 @@ if (!app.requestSingleInstanceLock()) {
             return;
         }
         stopCaffeinate();
+        closeWarning();
         batteryMonitor?.stop();
         claudeWatcher?.stop();
         if (soundProcess) soundProcess.kill();
