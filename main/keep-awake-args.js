@@ -1,5 +1,9 @@
-function keepAwakeArgs ({ allowDisplaySleep, ownerPid }) {
-    return [allowDisplaySleep ? '-ims' : '-dimsu', '-w', String(ownerPid)];
+function keepAwakeFlag ({ allowDisplaySleep }) {
+    return allowDisplaySleep ? '-ims' : '-dimsu';
 }
 
-module.exports = { keepAwakeArgs };
+function keepAwakeArgs ({ allowDisplaySleep, ownerPid }) {
+    return [keepAwakeFlag({ allowDisplaySleep }), '-w', String(ownerPid)];
+}
+
+module.exports = { keepAwakeFlag, keepAwakeArgs };

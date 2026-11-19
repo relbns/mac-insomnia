@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
-const { keepAwakeArgs } = require('./keep-awake-args');
+const { keepAwakeFlag, keepAwakeArgs } = require('./keep-awake-args');
 const { ProcessWatcher } = require('./process-watch');
 const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer, idleDelayMs } = require('./claude-lid');
 const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
@@ -55,6 +55,7 @@ let lidIdleFired = false;
 let lidStartedPlayback = false;
 let processWatcher = null;
 let processCandidates = [];
+let processCandidatesOk = true;
 let processRefresh = null;
 let warnedForEndTime = null;
 let soundProcess = null;
@@ -429,7 +430,14 @@ async function changeClaudeHooks (install) {
 }
 
 function runUrlCommand ({ action, durationMs, pid }) {
-    if (action === 'until') return processWatcher.watchPid(pid);
+    if (action === 'until') {
+        return processWatcher.watchPid(pid).then((result) => {
+            if (result.ok) return;
+            notify('Not waiting for that process', result.reason === 'already-waiting'
+                ? `Insomnia is already waiting for process ${pid}.`
+                : `Process ${pid} is not running, so there is nothing to wait for.`);
+        });
+    }
     if (action === 'stop') return stopPlayback();
     if (action === 'toggle') return togglePlayback();
     if (durationMs !== undefined) setDuration(durationMs);
@@ -501,8 +509,9 @@ function updateTooltip () {
     const lid = lidSleep?.active ? ' - lid closed mode' : '';
     const warning = lidSleep && !lidSleep.active && lidSleep.systemSleepDisabled !== false ? ' - sleep disabled system-wide' : '';
     const smart = settings.smartMode && claudeWatcher ? ` - ${smartStatusLabel()}` : '';
-    const waiting = processWatcher?.count ? ` - waiting for ${processWatcher.list().map((p) => p.name).join(', ')}` : '';
-    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}${smart}${waiting}` : `Insomnia - Stopped${warning}${smart}${waiting}`);
+    const waiting = processWatcher?.count ? ` - waiting for ${processWatcher.list().map((p) => p.label).join(', ')}` : '';
+    const idle = waiting ? 'Insomnia' : 'Insomnia - Stopped';
+    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}${smart}${waiting}` : `${idle}${warning}${smart}${waiting}`);
 }
 
 function refreshTray () {
@@ -521,23 +530,31 @@ function isKeepingAwake () {
 function refreshProcessCandidates () {
     if (!processWatcher || processRefresh) return;
     processRefresh = processWatcher.candidates()
-        .then((list) => {
+        .then(({ ok, list }) => {
             processCandidates = list;
+            processCandidatesOk = ok;
             invalidateMenu();
         })
         .finally(() => { processRefresh = null; });
 }
 
 function processMenuItems () {
-    const items = processCandidates.map(({ pid, name, cpu }) => ({
-        label: `${name} (${Math.round(cpu)}% CPU)`,
-        click: () => processWatcher.watch(pid, name)
+    if (!processCandidatesOk) return [{ label: 'Could not read running processes', enabled: false }];
+    const items = processCandidates.map(({ pid, name, label, cpu }) => ({
+        label: `${label} (${Math.round(cpu)}% CPU)`,
+        click: () => waitForProcess(pid, name)
     }));
     return items.length ? items : [{ label: 'No busy apps or tools right now', enabled: false }];
 }
 
+async function waitForProcess (pid, name) {
+    const result = await processWatcher.watchChecked(pid, name);
+    if (!result.ok && result.reason === 'not-running') notify(`${name} is no longer running`, 'There is nothing to wait for. The list is refreshed.');
+    refreshProcessCandidates();
+}
+
 function watchedMenuItems () {
-    return (processWatcher?.list() || []).map(({ pid, name }) => ({ label: `Stop Waiting for ${name}`, click: () => processWatcher.unwatch(pid) }));
+    return (processWatcher?.list() || []).map(({ pid, label }) => ({ label: `Stop Waiting for ${label}`, click: () => processWatcher.unwatch(pid) }));
 }
 
 function guardPercent () {
@@ -769,6 +786,7 @@ function toggleAllowDisplaySleep () {
 function setAllowDisplaySleep (value) {
     settings.allowDisplaySleep = value;
     saveSettings();
+    processWatcher?.reapplyFlags();
     if (caffeinateProcess) {
         stopCaffeinate();
         startCaffeinate();
@@ -938,10 +956,13 @@ if (!app.requestSingleInstanceLock()) {
         });
         claudeWatcher.sweepOrphans();
         processWatcher = new ProcessWatcher({
-            keepAwakeFlags: () => [keepAwakeArgs({ allowDisplaySleep: settings.allowDisplaySleep, ownerPid: process.pid })[0]],
+            keepAwakeFlag: () => keepAwakeFlag({ allowDisplaySleep: settings.allowDisplaySleep }),
             onChange: () => refreshTray(),
-            onFinished: ({ name }) => notify(`${name} finished`, 'Insomnia stopped waiting for it, so the Mac can sleep again.')
+            onFinished: ({ name }) => notify(`${name} finished`, 'Insomnia stopped waiting for it, so the Mac can sleep again.'),
+            onUnexpectedEnd: ({ name }) => notify(`Stopped waiting for ${name}`, 'Its keep-awake process ended unexpectedly. Start waiting again from the menu if it is still running.'),
+            onError: (error) => console.error('Process wait:', error)
         });
+        processWatcher.sweepOrphans();
         applySmartMode();
         pendingUrls.splice(0).forEach(handleUrl);
         powerMonitor.on('on-battery', () => onPowerSourceChange(true));

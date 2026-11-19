@@ -147,6 +147,10 @@ To keep the Mac awake for exactly as long as a command runs, start it in the bac
 npm run build & open -g "mac-insomnia://until?pid=$!"
 ```
 
+The command then runs in the background, so stop it with `kill %1` rather than Ctrl-C. Inside a script, `open -g "mac-insomnia://until?pid=$$"` waits for the script itself.
+
+Waiting for a process is separate from the session: **Stop Insomnia** and `mac-insomnia://stop` leave it running, and **Stop Waiting for …** in the menu ends it. A wait renews itself every 24 hours while the process runs, and a wait left behind by a crash of Mac Insomnia is cleared on its next launch.
+
 Lid Closed Mode cannot be turned on from a link, because it needs the warning and the administrator prompt.
 
 ---
