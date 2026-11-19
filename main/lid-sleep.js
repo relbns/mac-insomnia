@@ -1,0 +1,195 @@
+const fs = require('fs');
+const { execFile, spawn } = require('child_process');
+
+const PMSET = '/usr/bin/pmset';
+const CAFFEINATE = '/usr/bin/caffeinate';
+const USER_CANCELED = -128;
+
+function parseSleepDisabled (pmsetOutput) {
+    const match = String(pmsetOutput).match(/^\s*SleepDisabled\s+(\d+)/m);
+    return Boolean(match && match[1] !== '0');
+}
+
+function shellQuote (value) {
+    return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function appleScriptString (value) {
+    return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function buildEnableCommand ({ tokenPid, pmsetPath = PMSET, caffeinatePath = CAFFEINATE }) {
+    if (!Number.isInteger(tokenPid) || tokenPid <= 0) throw new Error(`invalid token pid: ${tokenPid}`);
+    const watchdog = `${shellQuote(caffeinatePath)} -w ${tokenPid}; ${shellQuote(pmsetPath)} -a disablesleep 0`;
+    return `${shellQuote(pmsetPath)} -a disablesleep 1 && { /usr/bin/nohup /bin/sh -c ${shellQuote(watchdog)} >/dev/null 2>&1 & }`;
+}
+
+function buildRestoreCommand ({ pmsetPath = PMSET } = {}) {
+    return `${shellQuote(pmsetPath)} -a disablesleep 0`;
+}
+
+function buildOsascript ({ command, prompt, privileged = true }) {
+    const parts = [`do shell script ${appleScriptString(command)}`];
+    if (privileged) parts.push(`with prompt ${appleScriptString(prompt)}`, 'with administrator privileges');
+    return parts.join(' ');
+}
+
+function decideStartupAction ({ sleepDisabled, markerExists }) {
+    if (sleepDisabled && markerExists) return 'restore-left-over';
+    if (sleepDisabled) return 'report-external';
+    if (markerExists) return 'clear-marker';
+    return 'none';
+}
+
+function isUserCancel (error) {
+    return Boolean(error) && (error.code === USER_CANCELED || /\(-128\)|User cancel+ed/i.test(String(error.stderr || error.message)));
+}
+
+function defaultRunner () {
+    return {
+        readPmset: () => new Promise((resolve, reject) => {
+            execFile(PMSET, ['-g'], { timeout: 5000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+        }),
+        osascript: (script) => new Promise((resolve, reject) => {
+            execFile('/usr/bin/osascript', ['-e', script], { timeout: 5 * 60 * 1000 }, (err, stdout, stderr) => {
+                if (err) {
+                    err.stderr = stderr;
+                    reject(err);
+                } else resolve(stdout);
+            });
+        }),
+        spawnToken: (ownerPid) => spawn(CAFFEINATE, ['-s', '-w', String(ownerPid)], { stdio: 'ignore' })
+    };
+}
+
+class LidSleepController {
+    constructor ({ markerPath, ownerPid = process.pid, runner = defaultRunner(), commandOptions = {}, privileged = true, restoreWaitMs = 3000, restorePollMs = 250, onUnexpectedEnd = () => {} }) {
+        this.markerPath = markerPath;
+        this.ownerPid = ownerPid;
+        this.runner = runner;
+        this.commandOptions = commandOptions;
+        this.privileged = privileged;
+        this.restoreWaitMs = restoreWaitMs;
+        this.restorePollMs = restorePollMs;
+        this.onUnexpectedEnd = onUnexpectedEnd;
+        this.token = null;
+        this.systemSleepDisabled = false;
+    }
+
+    get active () {
+        return Boolean(this.token);
+    }
+
+    async refresh () {
+        try {
+            this.systemSleepDisabled = parseSleepDisabled(await this.runner.readPmset());
+        } catch {
+            this.systemSleepDisabled = false;
+        }
+        return this.systemSleepDisabled;
+    }
+
+    markerExists () {
+        return fs.existsSync(this.markerPath);
+    }
+
+    writeMarker () {
+        fs.writeFileSync(this.markerPath, JSON.stringify({ ownerPid: this.ownerPid, tokenPid: this.token.pid, enabledAt: new Date().toISOString() }));
+    }
+
+    clearMarker () {
+        fs.rmSync(this.markerPath, { force: true });
+    }
+
+    async startupAction () {
+        const sleepDisabled = await this.refresh();
+        const action = decideStartupAction({ sleepDisabled, markerExists: this.markerExists() });
+        if (action === 'clear-marker') this.clearMarker();
+        return action;
+    }
+
+    async enable () {
+        if (this.token) return { ok: true };
+        const token = this.runner.spawnToken(this.ownerPid);
+        this.token = token;
+        token.on?.('exit', () => {
+            if (this.token !== token) return;
+            this.token = null;
+            this.onUnexpectedEnd();
+        });
+        this.writeMarker();
+        const command = buildEnableCommand({ tokenPid: this.token.pid, ...this.commandOptions });
+        try {
+            await this.runner.osascript(buildOsascript({
+                command,
+                prompt: 'Mac Insomnia needs your password to keep the Mac awake with the lid closed. Normal sleep is restored when the mode ends.',
+                privileged: this.privileged
+            }));
+        } catch (error) {
+            this.killToken();
+            this.clearMarker();
+            return { ok: false, canceled: isUserCancel(error), error };
+        }
+        if (!(await this.refresh())) {
+            this.killToken();
+            this.clearMarker();
+            return { ok: false, canceled: false, error: new Error('pmset did not report SleepDisabled after enabling') };
+        }
+        return { ok: true };
+    }
+
+    killToken () {
+        if (!this.token) return;
+        try {
+            this.token.kill('SIGTERM');
+        } catch {}
+        this.token = null;
+    }
+
+    async waitForRestore () {
+        const deadline = Date.now() + this.restoreWaitMs;
+        while (Date.now() < deadline) {
+            if (!(await this.refresh())) return true;
+            await new Promise((resolve) => setTimeout(resolve, this.restorePollMs));
+        }
+        return !(await this.refresh());
+    }
+
+    async disable ({ allowPrompt = true } = {}) {
+        this.killToken();
+        if (await this.waitForRestore()) {
+            this.clearMarker();
+            return { restored: true, via: 'watchdog' };
+        }
+        if (!allowPrompt) return { restored: false };
+        return this.restoreWithPrompt();
+    }
+
+    async restoreWithPrompt () {
+        try {
+            await this.runner.osascript(buildOsascript({
+                command: buildRestoreCommand(this.commandOptions),
+                prompt: 'Sleep is still disabled on this Mac. Mac Insomnia needs your password to restore normal sleep.',
+                privileged: this.privileged
+            }));
+        } catch (error) {
+            await this.refresh();
+            return { restored: false, canceled: isUserCancel(error), error };
+        }
+        const restored = !(await this.refresh());
+        if (restored) this.clearMarker();
+        return { restored, via: 'prompt' };
+    }
+}
+
+module.exports = {
+    LidSleepController,
+    parseSleepDisabled,
+    buildEnableCommand,
+    buildRestoreCommand,
+    buildOsascript,
+    decideStartupAction,
+    isUserCancel,
+    shellQuote,
+    appleScriptString
+};
