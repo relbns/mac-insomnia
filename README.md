@@ -11,6 +11,11 @@
   Perfect for long rendering sessions, file uploads, or coding marathons.
 </p>
 
+<p align="center">
+  <img src="./docs/screenshots/settings-light.png" alt="Settings window in light mode" width="360">
+  <img src="./docs/screenshots/settings-dark.png" alt="Settings window in dark mode" width="360">
+</p>
+
 ---
 
 ## 🚀 Features
