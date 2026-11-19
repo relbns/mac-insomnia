@@ -55,9 +55,11 @@
           "mac-insomnia"
         ]
       }
-    ]
+    ],
+    "afterPack": "build/after-pack.js"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "electron": "^33.0.2",
     "electron-builder": "^25.1.8"
   },
