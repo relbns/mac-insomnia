@@ -153,6 +153,9 @@ Lid Closed Mode cannot be turned on from a link, because it needs the warning an
 
   The cap covers a turn that ends without an idle event. The display may still sleep. Holds left behind by a crash of Mac Insomnia are cleared on its next launch.
 - **Background work.** The hold ends when Claude finishes its turn, even if it left a background command running. For long background runs, use the normal timer as well.
+- **End Lid Closed Mode when Claude is idle** (Settings → Claude Code, 10 minutes by default, or 5, 30 or Off). Turn on Lid Closed Mode, close the lid and let Claude work. Once Claude has worked and then finished, and no session has worked for that long, Insomnia turns Lid Closed Mode off, so a closed Mac can sleep instead of staying awake in a bag for hours. If you had an Insomnia session running before you turned on Lid Closed Mode, that session keeps running. If Lid Closed Mode started the session, it ends too.
+  - The countdown starts only after Claude has been seen working during this Lid Closed Mode session, so a download or build with no Claude involved is never cut short. It resets when Claude works again, and changing the setting keeps the time already counted.
+  - A session counts as finished on its idle event or when its Claude process exits, never when its 3-hour hold cap runs out. It needs the hooks: sessions that were open before the hooks were installed send no events until they restart.
 - **Remove Claude Code Hooks…** removes only these hooks and keeps every other hook, including one that shares a group with them.
 
 ---

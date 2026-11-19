@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const { normalizeLevel } = require('./levels');
 
 const GUARD_LEVELS = [10, 20, 30, 50];
 const DEFAULT_GUARD_PERCENT = 20;
@@ -16,8 +17,7 @@ function parsePowerSource (text) {
 }
 
 function normalizeGuardPercent (value) {
-    if (value === null) return null;
-    return GUARD_LEVELS.includes(Number(value)) ? Number(value) : DEFAULT_GUARD_PERCENT;
+    return normalizeLevel(value, GUARD_LEVELS, DEFAULT_GUARD_PERCENT);
 }
 
 function shouldMonitor ({ guardPercent, onBattery, awake }) {

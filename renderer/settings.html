@@ -182,6 +182,11 @@
             transition: background 0.15s ease;
         }
 
+        .segmented.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
         .segmented button[aria-pressed="true"] {
             background: var(--segment);
             box-shadow: var(--segment-shadow);
@@ -304,6 +309,29 @@
             </label>
         </section>
 
+        <h2>Claude Code</h2>
+        <section class="group">
+            <label class="row">
+                <span class="label">
+                    <span>Keep awake while Claude works</span>
+                    <span class="caption" id="smartCaption">Smart Mode</span>
+                </span>
+                <input class="switch" type="checkbox" data-setting="smartMode">
+            </label>
+            <div class="row stacked">
+                <div class="label">
+                    <span>End Lid Closed Mode when Claude is idle</span>
+                    <span class="caption">After Claude finishes, let the Mac sleep with the lid closed. Needs the hooks</span>
+                </div>
+                <div class="segmented" data-setting="lidEndsWhenClaudeIdle">
+                    <button type="button" data-value="null">Off</button>
+                    <button type="button" data-value="5">5 min</button>
+                    <button type="button" data-value="10">10 min</button>
+                    <button type="button" data-value="30">30 min</button>
+                </div>
+            </div>
+        </section>
+
         <h2>Battery</h2>
         <section class="group">
             <div class="row stacked">
@@ -383,6 +411,10 @@
                     button.setAttribute('aria-pressed', String(button.dataset.value === current));
                 }
             }
+            document.getElementById('smartCaption').textContent = settings.claudeHooksInstalled
+                ? 'Smart Mode, using the Claude Code hooks'
+                : 'Smart Mode. Install the Claude Code hooks from the menu for per-turn tracking';
+            document.querySelector('[data-setting="lidEndsWhenClaudeIdle"]').classList.toggle('disabled', !settings.smartMode);
             const login = document.querySelector('[data-setting="startAtLogin"]');
             login.disabled = settings.isDevelopment;
             document.getElementById('loginCaption').hidden = !settings.isDevelopment;
