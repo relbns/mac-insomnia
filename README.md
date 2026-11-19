@@ -23,6 +23,7 @@
 - 🧩 **Icon Sets** – Switch between two icon styles
 - 💻 **Lid Closed Mode** – Keep the Mac running with the lid closed (asks for an admin password)
 - 🤖 **Smart Mode for Claude Code** – Stay awake only while Claude is working
+- ⚡ **Automation** – `mac-insomnia://start?minutes=90` links for Shortcuts, Raycast and scripts
 - 💤 **Powered by `caffeinate`** – Lightweight native macOS approach
 - 🔒 **Secure and Signed Build** – Uses hardened runtime and entitlements
 
@@ -71,6 +72,26 @@ dist/
 - Normal sleep (`disablesleep 0`) is restored when you turn the mode off, when the timer ends and when you quit. No second password is needed: a small root watchdog started with the mode waits on a helper process that exits with the app, so a crash or a force quit restores sleep too.
 - On launch the app checks `pmset -g`. If sleep is still disabled after an unclean exit (for example a reboot while the mode was on), it asks for the password to restore it. If something else disabled sleep, the menu says so and offers **Restore Normal Sleep…**.
 - The mode always starts off when the app launches.
+
+---
+
+## ⚡ Automation (Shortcuts, Raycast, scripts)
+
+Mac Insomnia handles `mac-insomnia://` links, so anything that can open a URL can control it:
+
+| Link | Does |
+|---|---|
+| `mac-insomnia://start` | Starts with the current duration |
+| `mac-insomnia://start?minutes=90` | Starts for 90 minutes (1 to 1440). If already running, restarts the timer |
+| `mac-insomnia://start?minutes=infinite` | Starts with no time limit |
+| `mac-insomnia://stop` | Stops |
+| `mac-insomnia://toggle` | Starts or stops |
+
+- **Terminal or scripts:** `open -g "mac-insomnia://start?minutes=90"` (`-g` keeps focus where it is). The link launches Mac Insomnia if it is not running.
+- **Shortcuts:** add an **Open URLs** action with one of the links.
+- **Raycast:** create a Quicklink with one of the links.
+
+Lid Closed Mode cannot be turned on from a link, because it needs the warning and the administrator prompt.
 
 ---
 
