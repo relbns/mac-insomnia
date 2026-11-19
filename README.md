@@ -11,10 +11,16 @@
   Perfect for long rendering sessions, file uploads, or coding marathons.
 </p>
 
-<p align="center">
-  <img src="./docs/screenshots/settings-light.png" alt="Settings window in light mode" width="360">
-  <img src="./docs/screenshots/settings-dark.png" alt="Settings window in dark mode" width="360">
-</p>
+---
+
+## 📸 Screenshots
+
+| Settings | About |
+|---|---|
+| <img src="./docs/screenshots/settings-light.png" alt="Settings in light mode" width="320"> | <img src="./docs/screenshots/about-light.png" alt="About in light mode" width="240"> |
+| <img src="./docs/screenshots/settings-dark.png" alt="Settings in dark mode" width="320"> | <img src="./docs/screenshots/about-dark.png" alt="About in dark mode" width="240"> |
+
+Both windows follow the system's light or dark appearance and accent color. In the app, the window background is translucent.
 
 ---
 
@@ -33,17 +39,6 @@
 - 💤 **Powered by `caffeinate`** – Lightweight native macOS approach
 - 🪶 **Light at idle** – One process, about 30 MB of memory, no polling and no idle wakeups
 - 🔒 **Hardened** – Settings and About run with context isolation and the renderer sandbox, and the Electron fuses that let the app run as plain Node (`ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS`, `--inspect`) are off
-
----
-
-## 📸 Screenshots
-
-| Settings | About |
-|---|---|
-| <img src="./docs/screenshots/settings-light.png" alt="Settings in light mode" width="320"> | <img src="./docs/screenshots/about-light.png" alt="About in light mode" width="240"> |
-| <img src="./docs/screenshots/settings-dark.png" alt="Settings in dark mode" width="320"> | <img src="./docs/screenshots/about-dark.png" alt="About in dark mode" width="240"> |
-
-Both windows follow the system's light or dark appearance and accent color. In the app, the window background is translucent.
 
 ---
 
