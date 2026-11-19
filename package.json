@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron . 2>/dev/null",
     "build": "electron-builder",
-    "test": "node --test"
+    "test": "node --test",
+    "measure": "node scripts/measure-footprint.mjs"
   },
   "keywords": [],
   "author": "Ariel Benesh",
@@ -23,7 +24,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "LSUIElement": true
+      }
     },
     "files": [
       "main/**/*",
