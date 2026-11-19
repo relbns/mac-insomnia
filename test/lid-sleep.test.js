@@ -16,17 +16,17 @@ test('parseSleepDisabled reads the SleepDisabled line of pmset -g', () => {
     assert.equal(parseSleepDisabled('System-wide power settings:\nCurrently in use:\n sleep 1 (sleep prevented by caffeinate)'), false);
 });
 
-test('decideStartupAction fails closed when the sleep state is unknown', () => {
+test('decideStartupAction restores only what this app left behind and fails closed when pmset is unreadable', () => {
     const cases = [
-        [true, true, 'restore-left-over'],
-        [null, true, 'restore-left-over'],
-        [true, false, 'report-external'],
-        [null, false, 'report-unknown'],
-        [false, true, 'clear-marker'],
-        [false, false, 'none']
+        { scenario: 'left over by a crash', sleepDisabled: true, markerExists: true, expected: 'restore-left-over' },
+        { scenario: 'pmset unreadable, marker present', sleepDisabled: null, markerExists: true, expected: 'restore-left-over' },
+        { scenario: 'set by another tool', sleepDisabled: true, markerExists: false, expected: 'report-external' },
+        { scenario: 'pmset unreadable, no marker', sleepDisabled: null, markerExists: false, expected: 'report-unknown' },
+        { scenario: 'stale marker', sleepDisabled: false, markerExists: true, expected: 'clear-marker' },
+        { scenario: 'clean', sleepDisabled: false, markerExists: false, expected: 'none' }
     ];
-    for (const [sleepDisabled, markerExists, expected] of cases) {
-        assert.equal(decideStartupAction({ sleepDisabled, markerExists }), expected, `${sleepDisabled}/${markerExists}`);
+    for (const { scenario, sleepDisabled, markerExists, expected } of cases) {
+        assert.equal(decideStartupAction({ sleepDisabled, markerExists }), expected, scenario);
     }
 });
 
@@ -47,8 +47,10 @@ test('isUserCancel recognises the osascript cancel error', () => {
     assert.equal(isUserCancel({ stderr: 'execution error: The administrator user name or password was incorrect. (-60007)' }), false);
 });
 
-function fakeController ({ initial = 0, enableSets = 1, watchdogRestores = true, watchdogStarts = true, pmsetFails = false } = {}) {
-    const markerPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lid-')), 'marker.json');
+function fakeController (t, { initial = 0, enableSets = 1, watchdogRestores = true, watchdogStarts = true, pmsetFails = false } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lid-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const markerPath = path.join(dir, 'marker.json');
     const killed = [];
     const prompts = [];
     const state = { sleepDisabled: initial, onPrompt: null };
@@ -81,8 +83,8 @@ function fakeController ({ initial = 0, enableSets = 1, watchdogRestores = true,
     return { controller, killed, markerPath, prompts, state };
 }
 
-test('active is true only after pmset confirms, not while the password prompt is open', async () => {
-    const { controller, state } = fakeController();
+test('active is true only after pmset confirms, not while the password prompt is open', async (t) => {
+    const { controller, state } = fakeController(t);
     const seen = [];
     state.onPrompt = () => seen.push([controller.pending, controller.active]);
     assert.equal((await controller.enable()).ok, true);
@@ -90,8 +92,8 @@ test('active is true only after pmset confirms, not while the password prompt is
     assert.deepEqual([controller.pending, controller.active], [false, true]);
 });
 
-test('a cancelled password prompt leaves nothing behind', async () => {
-    const { controller, killed, markerPath, state } = fakeController();
+test('a cancelled password prompt leaves nothing behind', async (t) => {
+    const { controller, killed, markerPath, state } = fakeController(t);
     state.onPrompt = () => { throw cancelError(); };
     const result = await controller.enable();
     assert.deepEqual([result.ok, result.canceled], [false, true]);
@@ -100,8 +102,8 @@ test('a cancelled password prompt leaves nothing behind', async () => {
     assert.equal(fs.existsSync(markerPath), false);
 });
 
-test('a stop during the password prompt ends the mode once pmset runs', async () => {
-    const { controller, markerPath, state } = fakeController();
+test('a stop during the password prompt ends the mode once pmset runs', async (t) => {
+    const { controller, markerPath, state } = fakeController(t);
     state.onPrompt = () => controller.killToken();
     const result = await controller.enable();
     assert.deepEqual(result, { ok: false, reason: 'stopped', restored: true });
@@ -109,30 +111,33 @@ test('a stop during the password prompt ends the mode once pmset runs', async ()
     assert.equal(fs.existsSync(markerPath), false);
 });
 
-test('enable refuses to take over a disablesleep set by something else', async () => {
-    const { controller, prompts } = fakeController({ initial: 1 });
+test('enable refuses to take over a disablesleep set by something else', async (t) => {
+    const { controller, prompts } = fakeController(t, { initial: 1 });
     assert.deepEqual(await controller.enable(), { ok: false, reason: 'already-disabled' });
     assert.equal(prompts.length, 0);
 });
 
-test('an unreadable sleep state is unknown, never "restored"', async () => {
-    const { controller, prompts } = fakeController({ pmsetFails: true });
-    assert.equal(await controller.refresh(), null);
-    assert.equal(await controller.waitForRestore(), false);
+test('enable refuses when pmset cannot be read', async (t) => {
+    const { controller, prompts } = fakeController(t, { pmsetFails: true });
     assert.deepEqual(await controller.enable(), { ok: false, reason: 'state-unknown' });
     assert.equal(prompts.length, 0);
 });
 
-test('enable that pmset does not confirm is rolled back', async () => {
-    const { controller, markerPath } = fakeController({ enableSets: 0 });
+test('disable does not report restored when pmset cannot be read', async (t) => {
+    const { controller } = fakeController(t, { pmsetFails: true });
+    assert.equal((await controller.disable({ allowPrompt: false })).restored, false);
+});
+
+test('enable that pmset does not confirm is rolled back', async (t) => {
+    const { controller, markerPath } = fakeController(t, { enableSets: 0 });
     const result = await controller.enable();
     assert.equal(result.ok, false);
     assert.equal(controller.active, false);
     assert.equal(fs.existsSync(markerPath), false);
 });
 
-test('a watchdog that did not start turns the mode off with the restore prompt', async () => {
-    const { controller, prompts, markerPath } = fakeController({ watchdogStarts: false, watchdogRestores: false });
+test('a watchdog that did not start turns the mode off with the restore prompt', async (t) => {
+    const { controller, prompts, markerPath } = fakeController(t, { watchdogStarts: false, watchdogRestores: false });
     const result = await controller.enable();
     assert.deepEqual([result.ok, result.restored], [false, true]);
     assert.equal(prompts.length, 2);
@@ -140,8 +145,8 @@ test('a watchdog that did not start turns the mode off with the restore prompt',
     assert.equal(fs.existsSync(markerPath), false);
 });
 
-test('disable restores through the watchdog without a second prompt', async () => {
-    const { controller, markerPath, prompts } = fakeController();
+test('disable restores through the watchdog without a second prompt', async (t) => {
+    const { controller, markerPath, prompts } = fakeController(t);
     assert.equal((await controller.enable()).ok, true);
     assert.equal(fs.existsSync(markerPath), true);
     assert.deepEqual(await controller.disable(), { restored: true, via: 'watchdog' });
@@ -149,16 +154,16 @@ test('disable restores through the watchdog without a second prompt', async () =
     assert.equal(fs.existsSync(markerPath), false);
 });
 
-test('disable falls back to the password prompt when the watchdog does not restore', async () => {
-    const { controller, markerPath, prompts } = fakeController({ watchdogRestores: false });
+test('disable falls back to the password prompt when the watchdog does not restore', async (t) => {
+    const { controller, markerPath, prompts } = fakeController(t, { watchdogRestores: false });
     assert.equal((await controller.enable()).ok, true);
     assert.deepEqual(await controller.disable(), { restored: true, via: 'prompt' });
     assert.equal(prompts.length, 2);
     assert.equal(fs.existsSync(markerPath), false);
 });
 
-test('a cancelled restore prompt reports sleep as still disabled and keeps the marker', async () => {
-    const { controller, markerPath, state } = fakeController({ watchdogRestores: false });
+test('a cancelled restore prompt reports sleep as still disabled and keeps the marker', async (t) => {
+    const { controller, markerPath, state } = fakeController(t, { watchdogRestores: false });
     assert.equal((await controller.enable()).ok, true);
     state.onPrompt = () => { throw cancelError(); };
     const result = await controller.disable();
@@ -166,15 +171,17 @@ test('a cancelled restore prompt reports sleep as still disabled and keeps the m
     assert.equal(fs.existsSync(markerPath), true);
 });
 
-test('a token that dies on its own waits for the watchdog before reporting', async () => {
-    const { controller, markerPath, prompts, state } = fakeController({ watchdogRestores: false });
-    const ended = [];
-    controller.onUnexpectedEnd = (info) => ended.push(info);
+test('a token that dies on its own waits for the watchdog before reporting', async (t) => {
+    const { controller, markerPath, prompts, state } = fakeController(t, { watchdogRestores: false });
+    const ended = new Promise((resolve, reject) => {
+        controller.onUnexpectedEnd = resolve;
+        setTimeout(() => reject(new Error('onUnexpectedEnd was not called')), 1000);
+    });
     assert.equal((await controller.enable()).ok, true);
-    const token = controller.token;
     setTimeout(() => { state.sleepDisabled = 0; }, 20);
-    await controller.handleTokenExit(token);
-    assert.deepEqual(ended, [{ restored: true }]);
+    controller.token.emit('exit');
+    assert.deepEqual(await ended, { restored: true });
+    assert.equal(controller.active, false);
     assert.equal(prompts.length, 1);
     assert.equal(fs.existsSync(markerPath), false);
 });

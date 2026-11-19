@@ -51,7 +51,7 @@ const waitFor = async (fn, ms = 4000) => {
     return fn();
 };
 
-test('turning the mode off restores sleep through the watchdog, no second prompt', { skip: !darwin }, async (t) => {
+test('turning the mode off restores sleep through the real watchdog and leaves no watchdog process behind', { skip: !darwin }, async (t) => {
     const { owner, controller, read, watchdogs } = setup(t);
     assert.equal((await controller.enable()).ok, true);
     assert.equal(read(), '1');
