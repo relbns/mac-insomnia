@@ -142,6 +142,8 @@ class ClaudeWatcher {
         this.generation = 0;
         this.scanTimer = null;
         this.queue = Promise.resolve();
+        this.suspended = false;
+        this.busyWhileSuspended = new Set();
     }
 
     get count () {
@@ -170,6 +172,26 @@ class ClaudeWatcher {
 
     stop () {
         this.halt({ keepHolds: false });
+        this.suspended = false;
+        this.busyWhileSuspended.clear();
+        this.onChange();
+    }
+
+    suspend () {
+        if (this.suspended) return;
+        this.suspended = true;
+        this.busyWhileSuspended = new Set(this.holds.keys());
+        for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false });
+        this.onChange();
+    }
+
+    resume () {
+        if (!this.suspended) return;
+        this.suspended = false;
+        const busy = [...this.busyWhileSuspended];
+        this.busyWhileSuspended.clear();
+        if (this.mode === 'hooks') for (const pid of busy) this.hold(pid);
+        if (this.mode === 'scan') this.scan();
         this.onChange();
     }
 
@@ -214,7 +236,10 @@ class ClaudeWatcher {
             const generation = this.generation;
             const pid = findClaudeAncestor(event.pid, await this.runner.processTable());
             if (generation !== this.generation || this.mode !== 'hooks' || !pid) return false;
-            if (event.state === 'idle') this.release(pid);
+            if (this.suspended) {
+                if (event.state === 'idle') this.busyWhileSuspended.delete(pid);
+                else this.busyWhileSuspended.add(pid);
+            } else if (event.state === 'idle') this.release(pid);
             else this.hold(pid);
             return true;
         });
@@ -225,7 +250,7 @@ class ClaudeWatcher {
             if (this.mode !== 'scan') return;
             const generation = this.generation;
             const table = await this.runner.processTable();
-            if (generation !== this.generation || this.mode !== 'scan') return;
+            if (generation !== this.generation || this.mode !== 'scan' || this.suspended) return;
             for (const pid of claudePids(table)) if (!this.holds.has(pid)) this.hold(pid);
         });
     }
