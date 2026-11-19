@@ -37,6 +37,7 @@ Settings is split into tabs and the window resizes to each one. Both windows fol
 - ⏱️ **Set Duration** – Choose 30 min, 1 hour, 2 hours, or infinite
 - ⏰ **Timer Reminder** – A notification five minutes before the timer ends. Clicking it opens the menu, where **Add 30 Minutes** extends the session
 - 🔋 **Battery Guard** – Stops keeping the Mac awake when the battery runs low (20% by default), and turns off Lid Closed Mode on battery
+- ⏳ **Keep Awake Until a Process Ends** – Pick a busy app or tool (a build, a render, a download) and stay awake until it finishes, with a notification when it does
 - 🖥️ **Let the Display Sleep** – Keep the Mac running but let the screen turn off, to save power during downloads, builds or long Claude runs
 - 🔊 **Sound Effects** – Optional feedback for start/stop
 - 🧠 **Start at Login** – Launch automatically with macOS
@@ -134,10 +135,21 @@ Mac Insomnia handles `mac-insomnia://` links, so anything that can open a URL ca
 | `mac-insomnia://start?minutes=infinite` | Starts with no time limit |
 | `mac-insomnia://stop` | Stops |
 | `mac-insomnia://toggle` | Starts or stops |
+| `mac-insomnia://until?pid=1234` | Keeps the Mac awake until process 1234 ends, then notifies |
 
 - **Terminal or scripts:** `open -g "mac-insomnia://start?minutes=90"` (`-g` keeps focus where it is). The link launches Mac Insomnia if it is not running.
 - **Shortcuts:** add an **Open URLs** action with one of the links.
 - **Raycast:** create a Quicklink with one of the links.
+
+To keep the Mac awake for exactly as long as a command runs, start it in the background and hand its pid to Insomnia:
+
+```bash
+npm run build & open -g "mac-insomnia://until?pid=$!"
+```
+
+The command then runs in the background, so stop it with `kill %1` rather than Ctrl-C. Inside a script, `open -g "mac-insomnia://until?pid=$$"` waits for the script itself.
+
+Waiting for a process is separate from the session: **Stop Insomnia** and `mac-insomnia://stop` leave it running, and **Stop Waiting for …** in the menu ends it. A wait renews itself every 24 hours while the process runs, and a wait left behind by a crash of Mac Insomnia is cleared on its next launch.
 
 Lid Closed Mode cannot be turned on from a link, because it needs the warning and the administrator prompt.
 

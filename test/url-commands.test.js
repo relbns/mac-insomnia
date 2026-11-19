@@ -20,3 +20,10 @@ test('anything else is not a command', () => {
         assert.equal(parseCommandUrl(url), null, url);
     }
 });
+
+test('until takes the pid of the process to wait for', () => {
+    assert.deepEqual(parseCommandUrl('mac-insomnia://until?pid=4242'), { action: 'until', pid: 4242 });
+    for (const url of ['mac-insomnia://until', 'mac-insomnia://until?pid=1', 'mac-insomnia://until?pid=abc', 'mac-insomnia://until?pid=-3']) {
+        assert.equal(parseCommandUrl(url), null, url);
+    }
+});
