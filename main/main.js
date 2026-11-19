@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
+const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : path.join(__dirname, '..');
 const ASSETS_PATH = path.join(APP_ROOT, 'assets');
@@ -20,7 +21,8 @@ let settings = {
     defaultDuration: null,
     iconSet: 'set1',
     soundEnabled: true,
-    startAtLogin: false
+    startAtLogin: false,
+    smartMode: false
 };
 
 let tray = null;
@@ -38,6 +40,8 @@ let lidBusy = false;
 let quitting = false;
 let shuttingDown = false;
 let pmsetRefresh = null;
+let claudeWatcher = null;
+const pendingUrls = [];
 const iconCache = new Map();
 
 function isDevelopment () {
@@ -196,6 +200,84 @@ function lidMenuItems () {
     return items;
 }
 
+function claudeHooksInstalled () {
+    try {
+        return hasHooks(readClaudeSettings());
+    } catch {
+        return false;
+    }
+}
+
+function detectSmartModeSource () {
+    return claudeHooksInstalled() ? 'hooks' : 'scan';
+}
+
+function applySmartMode () {
+    if (!claudeWatcher) return;
+    if (settings.smartMode) claudeWatcher.start(detectSmartModeSource());
+    else claudeWatcher.stop();
+}
+
+function toggleSmartMode () {
+    settings.smartMode = !settings.smartMode;
+    saveSettings();
+    applySmartMode();
+}
+
+function smartStatusLabel () {
+    const n = claudeWatcher?.count || 0;
+    if (claudeWatcher?.mode === 'hooks') return n ? `Claude is working in ${n} session${n > 1 ? 's' : ''}` : 'Claude is idle';
+    return `${n} Claude Code process${n === 1 ? '' : 'es'} open (hooks not installed)`;
+}
+
+function smartMenuItems () {
+    return [
+        { label: 'Smart Mode: Keep Awake While Claude Works', type: 'checkbox', checked: settings.smartMode, click: () => toggleSmartMode() },
+        ...(settings.smartMode ? [{ label: smartStatusLabel(), enabled: false }] : []),
+        claudeHooksInstalled()
+            ? { label: 'Remove Claude Code Hooks…', click: () => changeClaudeHooks(false) }
+            : { label: 'Install Claude Code Hooks…', click: () => changeClaudeHooks(true) }
+    ];
+}
+
+async function changeClaudeHooks (install) {
+    try {
+        readClaudeSettings();
+    } catch (error) {
+        dialog.showErrorBox('Could not read Claude Code settings', `${CLAUDE_SETTINGS} is not valid JSON, so it was left unchanged.\n\n${error.message}`);
+        return;
+    }
+    app.focus({ steal: true });
+    const { response } = await dialog.showMessageBox({
+        type: 'question',
+        message: install ? 'Install Claude Code hooks?' : 'Remove Claude Code hooks?',
+        detail: install
+            ? `Adds hooks to ${CLAUDE_SETTINGS} that tell Mac Insomnia when Claude starts and finishes a turn, so the Mac stays awake only while Claude is working. Claude Code sessions that are already open pick up the hooks after a restart. A backup of the file is saved next to it.`
+            : `Removes the Mac Insomnia hooks from ${CLAUDE_SETTINGS}. Other hooks are kept. A backup of the file is saved next to it.`,
+        buttons: [install ? 'Install' : 'Remove', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+    });
+    if (response !== 0) return;
+    try {
+        const latest = readClaudeSettings();
+        writeClaudeSettings(install ? addHooks(latest) : removeHooks(latest));
+    } catch (error) {
+        dialog.showErrorBox('Could not update Claude Code settings', error.message);
+        return;
+    }
+    applySmartMode();
+    refreshTray();
+}
+
+function handleUrl (url) {
+    if (!claudeWatcher) {
+        pendingUrls.push(url);
+        return;
+    }
+    claudeWatcher.handleUrl(url);
+}
+
 function createContextMenu () {
     const runLabel = isPlaying ? `Stop Insomnia (${formatTimeRemaining()})` : `Start (${formatDurationLabel(duration)}) Insomnia`;
     return Menu.buildFromTemplate([
@@ -207,6 +289,8 @@ function createContextMenu () {
         },
         { type: 'separator' },
         ...lidMenuItems(),
+        { type: 'separator' },
+        ...smartMenuItems(),
         { type: 'separator' },
         { label: 'Settings', click: () => createSettingsWindow() },
         { label: 'About', click: () => createAboutWindow() },
@@ -242,12 +326,13 @@ function updateTooltip () {
     if (!tray) return;
     const lid = lidSleep?.active ? ' - lid closed mode' : '';
     const warning = lidSleep && !lidSleep.active && lidSleep.systemSleepDisabled !== false ? ' - sleep disabled system-wide' : '';
-    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}` : `Insomnia - Stopped${warning}`);
+    const smart = settings.smartMode && claudeWatcher ? ` - ${smartStatusLabel()}` : '';
+    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}${smart}` : `Insomnia - Stopped${warning}${smart}`);
 }
 
 function refreshTray () {
     if (!tray) return;
-    tray.setImage(trayIcon(isPlaying));
+    tray.setImage(trayIcon(isPlaying || Boolean(claudeWatcher?.count)));
     updateTooltip();
     invalidateMenu();
 }
@@ -456,6 +541,10 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on('window-all-closed', () => {});
+    app.on('open-url', (event, url) => {
+        event.preventDefault();
+        handleUrl(url);
+    });
 
     app.whenReady().then(async () => {
         if (app.dock) app.dock.hide();
@@ -467,6 +556,14 @@ if (!app.requestSingleInstanceLock()) {
         });
         handleExternalLinks();
         createTray();
+        if (app.isPackaged) app.setAsDefaultProtocolClient(URL_SCHEME);
+        claudeWatcher = new ClaudeWatcher({
+            onChange: () => refreshTray(),
+            onError: (error) => console.error('Smart Mode:', error)
+        });
+        claudeWatcher.sweepOrphans();
+        applySmartMode();
+        pendingUrls.splice(0).forEach(handleUrl);
         powerMonitor.on('on-battery', () => {
             if (lidSleep.active) notify('Lid closed mode is on battery', 'The Mac will not sleep. Connect power, and never put it in a bag while this is on.');
         });
@@ -495,6 +592,7 @@ if (!app.requestSingleInstanceLock()) {
             return;
         }
         stopCaffeinate();
+        claudeWatcher?.stop();
         if (soundProcess) soundProcess.kill();
     });
 

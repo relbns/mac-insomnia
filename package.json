@@ -47,6 +47,14 @@
         "repo": "mac-insomnia",
         "releaseType": "release"
       }
+    ],
+    "protocols": [
+      {
+        "name": "Mac Insomnia",
+        "schemes": [
+          "mac-insomnia"
+        ]
+      }
     ]
   },
   "devDependencies": {
