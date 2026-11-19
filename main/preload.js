@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('insomnia', {
     setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
     onSettingsChanged: (callback) => ipcRenderer.on('settings-changed', (_event, settings) => callback(settings)),
     getVersion: () => ipcRenderer.invoke('get-app-version'),
+    fitWindow: (height) => ipcRenderer.send('fit-window', height),
     sendTestNotification: () => ipcRenderer.invoke('send-test-notification'),
     openNotificationSettings: () => ipcRenderer.invoke('open-notification-settings')
 });
