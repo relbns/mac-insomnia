@@ -11,7 +11,7 @@
   },
   "keywords": [],
   "author": "Ariel Benesh",
-  "license": "ISC",
+  "license": "MIT",
   "build": {
     "appId": "com.nodomain.insomnia",
     "productName": "Mac Insomnia",
