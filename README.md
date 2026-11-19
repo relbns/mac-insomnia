@@ -13,6 +13,17 @@
 
 ---
 
+## 📸 Screenshots
+
+| Settings | About |
+|---|---|
+| <img src="./docs/screenshots/settings-light.png" alt="Settings in light mode" width="320"> | <img src="./docs/screenshots/about-light.png" alt="About in light mode" width="240"> |
+| <img src="./docs/screenshots/settings-dark.png" alt="Settings in dark mode" width="320"> | <img src="./docs/screenshots/about-dark.png" alt="About in dark mode" width="240"> |
+
+Both windows follow the system's light or dark appearance and accent color. In the app, the window background is translucent.
+
+---
+
 ## 🚀 Features
 
 - 🕹️ **Menu Bar Control** – Toggle sleep prevention instantly

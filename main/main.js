@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog, powerMonitor, Notification, shell } = require('electron');
+const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog, powerMonitor, Notification, shell, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
@@ -83,6 +83,7 @@ function saveSettings () {
     } catch (error) {
         console.error('Error saving settings:', error);
     }
+    if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings-changed', settingsForRenderer());
 }
 
 function setStartAtLogin (openAtLogin) {
@@ -96,23 +97,43 @@ function setStartAtLogin (openAtLogin) {
     }
 }
 
-ipcMain.on('save-settings', (_event, newSettings) => {
-    const previousIconSet = settings.iconSet;
-    const previousDefault = parseDuration(settings.defaultDuration);
-    settings = {
-        ...settings,
-        defaultDuration: parseDuration(newSettings.defaultDuration),
-        iconSet: newSettings.iconSet === 'set2' ? 'set2' : 'set1',
-        soundEnabled: Boolean(newSettings.soundEnabled)
-    };
-    if (Boolean(newSettings.startAtLogin) !== settings.startAtLogin) settings.startAtLogin = setStartAtLogin(Boolean(newSettings.startAtLogin));
-    saveSettings();
-    if (parseDuration(settings.defaultDuration) !== previousDefault && !isPlaying) duration = parseDuration(settings.defaultDuration);
-    if (settings.iconSet !== previousIconSet) iconCache.clear();
+const SETTING_APPLIERS = {
+    defaultDuration: (value) => {
+        settings.defaultDuration = parseDuration(value);
+        if (!isPlaying) duration = settings.defaultDuration;
+        saveSettings();
+    },
+    iconSet: (value) => {
+        settings.iconSet = value === 'set2' ? 'set2' : 'set1';
+        iconCache.clear();
+        saveSettings();
+    },
+    soundEnabled: (value) => {
+        settings.soundEnabled = Boolean(value);
+        saveSettings();
+    },
+    startAtLogin: (value) => {
+        settings.startAtLogin = setStartAtLogin(Boolean(value));
+        saveSettings();
+    },
+    allowDisplaySleep: (value) => setAllowDisplaySleep(Boolean(value)),
+    batteryGuardPercent: (value) => setBatteryGuard(normalizeGuardPercent(value)),
+    lidOffOnBattery: (value) => setLidOffOnBattery(Boolean(value))
+};
+
+function settingsForRenderer () {
+    const accent = systemPreferences.getAccentColor?.() || '007affff';
+    return { ...settings, batteryGuardPercent: normalizeGuardPercent(settings.batteryGuardPercent), isDevelopment: isDevelopment(), accentColor: `#${accent.slice(0, 6)}` };
+}
+
+ipcMain.handle('set-setting', (_event, key, value) => {
+    if (!Object.hasOwn(SETTING_APPLIERS, key)) return settingsForRenderer();
+    SETTING_APPLIERS[key](value);
     refreshTray();
+    return settingsForRenderer();
 });
 
-ipcMain.handle('get-settings', () => ({ ...settings, isDevelopment: isDevelopment() }));
+ipcMain.handle('get-settings', () => settingsForRenderer());
 ipcMain.handle('get-app-version', () => app.getVersion());
 
 function secureWebPreferences () {
@@ -125,25 +146,35 @@ function openWindow (existing, options, file) {
         return existing;
     }
     const win = new BrowserWindow({
-        backgroundColor: '#1e1e1e',
         show: false,
         resizable: false,
         fullscreenable: false,
+        minimizable: false,
+        maximizable: false,
+        titleBarStyle: 'hiddenInset',
+        vibrancy: 'under-window',
+        visualEffectState: 'active',
+        backgroundColor: '#00000000',
         ...options,
         webPreferences: secureWebPreferences()
     });
     win.loadFile(path.join(RENDERER_PATH, file));
-    win.once('ready-to-show', () => win.show());
+    win.once('ready-to-show', async () => {
+        const height = await win.webContents.executeJavaScript('document.documentElement.scrollHeight').catch(() => null);
+        if (Number.isInteger(height) && height > 0) win.setContentSize(win.getContentSize()[0], height);
+        win.center();
+        win.show();
+    });
     return win;
 }
 
 function createSettingsWindow () {
-    settingsWindow = openWindow(settingsWindow, { width: 400, height: 480 }, 'settings.html');
+    settingsWindow = openWindow(settingsWindow, { width: 460, height: 560, title: 'Settings' }, 'settings.html');
     settingsWindow.once('closed', () => (settingsWindow = null));
 }
 
 function createAboutWindow () {
-    aboutWindow = openWindow(aboutWindow, { width: 300, height: 400, alwaysOnTop: true, minimizable: false }, 'about.html');
+    aboutWindow = openWindow(aboutWindow, { width: 320, height: 380, title: 'About Mac Insomnia' }, 'about.html');
     aboutWindow.once('closed', () => (aboutWindow = null));
 }
 
@@ -432,7 +463,11 @@ function enforceLidRuleOnBattery () {
 }
 
 function toggleLidOffOnBattery () {
-    settings.lidOffOnBattery = !settings.lidOffOnBattery;
+    setLidOffOnBattery(!settings.lidOffOnBattery);
+}
+
+function setLidOffOnBattery (value) {
+    settings.lidOffOnBattery = value;
     saveSettings();
     enforceLidRuleOnBattery();
     refreshTray();
@@ -534,7 +569,11 @@ function togglePlayback () {
 }
 
 function toggleAllowDisplaySleep () {
-    settings.allowDisplaySleep = !settings.allowDisplaySleep;
+    setAllowDisplaySleep(!settings.allowDisplaySleep);
+}
+
+function setAllowDisplaySleep (value) {
+    settings.allowDisplaySleep = value;
     saveSettings();
     if (caffeinateProcess) {
         stopCaffeinate();

@@ -2,129 +2,367 @@
 <html>
 
 <head>
-    <title>Settings - Mac Insomnia</title>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+    <title>Settings</title>
     <style>
+        :root {
+            --accent: #007aff;
+            --text: rgba(0, 0, 0, 0.85);
+            --secondary: rgba(0, 0, 0, 0.5);
+            --group: rgba(255, 255, 255, 0.62);
+            --separator: rgba(0, 0, 0, 0.08);
+            --track: rgba(0, 0, 0, 0.09);
+            --segment: #ffffff;
+            --segment-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.22);
+            --tile: rgba(255, 255, 255, 0.7);
+            --icon-filter: brightness(0);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --text: rgba(255, 255, 255, 0.88);
+                --secondary: rgba(255, 255, 255, 0.5);
+                --group: rgba(255, 255, 255, 0.055);
+                --separator: rgba(255, 255, 255, 0.08);
+                --track: rgba(255, 255, 255, 0.12);
+                --segment: rgba(255, 255, 255, 0.22);
+                --segment-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.4);
+                --tile: rgba(255, 255, 255, 0.06);
+                --icon-filter: brightness(0) invert(1);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            margin: 16px;
-            background-color: #1e1e1e;
-            color: #ffffff;
-            overflow: hidden;
+            margin: 0;
+            background: transparent;
+            color: var(--text);
+            font: 13px/1.35 -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: default;
         }
 
-        .setting-group {
-            margin-bottom: 16px;
-            padding: 12px;
-            background-color: #2d2d2d;
-            border-radius: 8px;
-        }
-
-        .setting-group h3 {
-            margin-top: 0;
-            margin-bottom: 8px;
-            color: #ffffff;
-            font-size: 16px;
-        }
-
-        .radio-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .checkbox-group {
-            margin: 6px 0;
-        }
-
-        button {
-            width: 100%;
-            background-color: #0066cc;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-top: 8px;
-        }
-
-        button:hover {
-            background-color: #0052a3;
-        }
-
-        label {
+        header {
+            -webkit-app-region: drag;
             display: flex;
             align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            font-size: 14px;
+            gap: 12px;
+            padding: 34px 24px 14px;
         }
 
-        .disabled-note {
-            color: #888;
+        header img {
+            width: 44px;
+            height: 44px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        header p {
+            margin: 1px 0 0;
+            color: var(--secondary);
+        }
+
+        main {
+            padding: 0 20px 8px;
+        }
+
+        h2 {
+            margin: 14px 4px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: var(--secondary);
+        }
+
+        .group {
+            background: var(--group);
+            border-radius: 10px;
+            box-shadow: 0 0 0 0.5px var(--separator);
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 44px;
+            padding: 9px 14px;
+        }
+
+        .row+.row {
+            border-top: 0.5px solid var(--separator);
+        }
+
+        .row.stacked {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+        }
+
+        .label {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .caption {
+            font-size: 11px;
+            color: var(--secondary);
+        }
+
+        .switch {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: none;
+            position: relative;
+            width: 32px;
+            height: 19px;
+            margin: 0;
+            border-radius: 10px;
+            background: var(--track);
+            transition: background 0.18s ease;
+            outline-offset: 2px;
+        }
+
+        .switch::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            transition: transform 0.18s ease;
+        }
+
+        .switch:checked {
+            background: var(--accent);
+        }
+
+        .switch:checked::before {
+            transform: translateX(13px);
+        }
+
+        .switch:disabled {
+            opacity: 0.4;
+        }
+
+        .segmented {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: 1fr;
+            padding: 2px;
+            border-radius: 7px;
+            background: var(--track);
+        }
+
+        .segmented button {
+            border: 0;
+            border-radius: 5px;
+            padding: 4px 6px;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
             font-size: 12px;
-            margin-top: 4px;
-            margin-left: 24px;
+            transition: background 0.15s ease;
+        }
+
+        .segmented button[aria-pressed="true"] {
+            background: var(--segment);
+            box-shadow: var(--segment-shadow);
+            font-weight: 500;
+        }
+
+        .tiles {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .tile {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 7px;
+            padding: 12px 8px 9px;
+            border: 0;
+            border-radius: 8px;
+            background: var(--tile);
+            box-shadow: 0 0 0 0.5px var(--separator);
+            color: var(--text);
+            font: inherit;
+            font-size: 12px;
+        }
+
+        .tile[aria-pressed="true"] {
+            box-shadow: 0 0 0 2px var(--accent);
+        }
+
+        .tile .icons {
+            display: flex;
+            gap: 14px;
+        }
+
+        .tile img {
+            width: 16px;
+            height: 16px;
+            filter: var(--icon-filter);
+        }
+
+        .tile .icons img:first-child {
+            opacity: 0.55;
+        }
+
+        button:focus-visible,
+        .switch:focus-visible {
+            outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+        }
+
+        footer {
+            padding: 12px 24px 20px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--secondary);
         }
     </style>
 </head>
 
 <body>
-    <div class="setting-group">
-        <h3>Default Duration</h3>
-        <div class="radio-group" id="defaultDuration">
-            <label><input type="radio" name="defaultDuration" value="null"> Infinite</label>
-            <label><input type="radio" name="defaultDuration" value="1800000"> 30 minutes</label>
-            <label><input type="radio" name="defaultDuration" value="3600000"> 1 hour</label>
-            <label><input type="radio" name="defaultDuration" value="7200000"> 2 hours</label>
+    <header>
+        <img src="../assets/insomnia-logo.png" alt="">
+        <div>
+            <h1>Mac Insomnia</h1>
+            <p>Settings</p>
         </div>
-    </div>
+    </header>
 
-    <div class="setting-group">
-        <h3>Icon Set</h3>
-        <div class="radio-group" id="iconSet">
-            <label><input type="radio" name="iconSet" value="set1"> Set 1 (Default)</label>
-            <label><input type="radio" name="iconSet" value="set2"> Set 2</label>
-        </div>
-    </div>
+    <main>
+        <h2>Keep Awake</h2>
+        <section class="group">
+            <div class="row stacked">
+                <div class="label">
+                    <span>Default duration</span>
+                    <span class="caption">How long a session lasts when you start it</span>
+                </div>
+                <div class="segmented" data-setting="defaultDuration">
+                    <button type="button" data-value="null">Infinite</button>
+                    <button type="button" data-value="1800000">30 min</button>
+                    <button type="button" data-value="3600000">1 hour</button>
+                    <button type="button" data-value="7200000">2 hours</button>
+                </div>
+            </div>
+            <label class="row">
+                <span class="label">
+                    <span>Let the display sleep</span>
+                    <span class="caption">The Mac keeps running while the screen turns off</span>
+                </span>
+                <input class="switch" type="checkbox" data-setting="allowDisplaySleep">
+            </label>
+        </section>
 
-    <div class="setting-group">
-        <div class="checkbox-group">
-            <label><input type="checkbox" id="soundEnabled"> Enable Sound Effects</label>
-        </div>
-        <div class="checkbox-group">
-            <label><input type="checkbox" id="startAtLogin"> Start at Login</label>
-            <div class="disabled-note" id="devNote" hidden>Start at login is disabled in development mode</div>
-        </div>
-    </div>
+        <h2>Battery</h2>
+        <section class="group">
+            <div class="row stacked">
+                <div class="label">
+                    <span>Battery Guard</span>
+                    <span class="caption">Stop keeping the Mac awake at this battery level</span>
+                </div>
+                <div class="segmented" data-setting="batteryGuardPercent">
+                    <button type="button" data-value="null">Off</button>
+                    <button type="button" data-value="10">10%</button>
+                    <button type="button" data-value="20">20%</button>
+                    <button type="button" data-value="30">30%</button>
+                    <button type="button" data-value="50">50%</button>
+                </div>
+            </div>
+            <label class="row">
+                <span class="label">
+                    <span>Turn off Lid Closed Mode on battery</span>
+                    <span class="caption">A closed Mac on battery can overheat in a bag</span>
+                </span>
+                <input class="switch" type="checkbox" data-setting="lidOffOnBattery">
+            </label>
+        </section>
 
-    <button id="saveButton">Save Settings</button>
+        <h2>General</h2>
+        <section class="group">
+            <label class="row">
+                <span class="label">
+                    <span>Start at login</span>
+                    <span class="caption" id="loginCaption" hidden>Not available in development builds</span>
+                </span>
+                <input class="switch" type="checkbox" data-setting="startAtLogin">
+            </label>
+            <label class="row">
+                <span class="label">Sound effects</span>
+                <input class="switch" type="checkbox" data-setting="soundEnabled">
+            </label>
+        </section>
+
+        <h2>Menu Bar Icon</h2>
+        <section class="tiles" data-setting="iconSet">
+            <button type="button" class="tile" data-value="set1">
+                <span class="icons"><img src="../assets/icon.png" alt=""><img src="../assets/icon-active.png" alt=""></span>
+                Classic
+            </button>
+            <button type="button" class="tile" data-value="set2">
+                <span class="icons"><img src="../assets/icon2.png" alt=""><img src="../assets/icon-active2.png" alt=""></span>
+                Alternate
+            </button>
+        </section>
+    </main>
+
+    <footer>Changes are saved automatically</footer>
 
     <script>
-        window.insomnia.getSettings().then((settings) => {
-            const duration = settings.defaultDuration === null ? 'null' : String(settings.defaultDuration);
-            const durationInput = document.querySelector(`input[name="defaultDuration"][value="${duration}"]`);
-            if (durationInput) durationInput.checked = true;
-            document.querySelector(`input[name="iconSet"][value="${settings.iconSet}"]`).checked = true;
-            document.getElementById('soundEnabled').checked = settings.soundEnabled;
+        const decode = (value) => (value === 'null' ? null : value);
 
-            const startAtLogin = document.getElementById('startAtLogin');
-            startAtLogin.checked = settings.startAtLogin;
-            if (settings.isDevelopment) {
-                startAtLogin.disabled = true;
-                document.getElementById('devNote').hidden = false;
+        function render (settings) {
+            document.documentElement.style.setProperty('--accent', settings.accentColor);
+            for (const input of document.querySelectorAll('.switch')) {
+                input.checked = Boolean(settings[input.dataset.setting]);
             }
-        });
+            for (const group of document.querySelectorAll('[data-setting]:not(.switch)')) {
+                const current = String(settings[group.dataset.setting] ?? null);
+                for (const button of group.querySelectorAll('button')) {
+                    button.setAttribute('aria-pressed', String(button.dataset.value === current));
+                }
+            }
+            const login = document.querySelector('[data-setting="startAtLogin"]');
+            login.disabled = settings.isDevelopment;
+            document.getElementById('loginCaption').hidden = !settings.isDevelopment;
+        }
 
-        document.getElementById('saveButton').addEventListener('click', () => {
-            window.insomnia.saveSettings({
-                defaultDuration: document.querySelector('input[name="defaultDuration"]:checked')?.value ?? 'null',
-                iconSet: document.querySelector('input[name="iconSet"]:checked')?.value ?? 'set1',
-                soundEnabled: document.getElementById('soundEnabled').checked,
-                startAtLogin: document.getElementById('startAtLogin').checked
-            });
-            window.close();
-        });
+        function update (key, value) {
+            window.insomnia.setSetting(key, value).then(render);
+        }
+
+        for (const input of document.querySelectorAll('.switch')) {
+            input.addEventListener('change', () => update(input.dataset.setting, input.checked));
+        }
+        for (const group of document.querySelectorAll('[data-setting]:not(.switch)')) {
+            for (const button of group.querySelectorAll('button')) {
+                button.addEventListener('click', () => update(group.dataset.setting, decode(button.dataset.value)));
+            }
+        }
+
+        window.insomnia.onSettingsChanged(render);
+        window.insomnia.getSettings().then(render);
     </script>
 </body>
 
