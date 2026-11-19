@@ -1,13 +1,19 @@
+const { normalizeLevel } = require('./levels');
+
 const IDLE_LEVELS = [5, 10, 30];
 const DEFAULT_IDLE_MINUTES = 10;
+const DONE_REASONS = ['idle', 'exited'];
 
 function normalizeIdleMinutes (value) {
-    if (value === null) return null;
-    return IDLE_LEVELS.includes(Number(value)) ? Number(value) : DEFAULT_IDLE_MINUTES;
+    return normalizeLevel(value, IDLE_LEVELS, DEFAULT_IDLE_MINUTES);
 }
 
-function shouldArmIdleTimer ({ idleMinutes, smartMode, lidActive, claudeBusy }) {
-    return Boolean(idleMinutes) && smartMode && lidActive && !claudeBusy;
+function shouldArmIdleTimer ({ idleMinutes, smartMode, lidActive, claudeBusy, sawClaudeWork, lastReleaseReason }) {
+    return Boolean(idleMinutes) && smartMode && lidActive && !claudeBusy && sawClaudeWork && DONE_REASONS.includes(lastReleaseReason);
 }
 
-module.exports = { IDLE_LEVELS, DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer };
+function idleDelayMs ({ armedAt, minutes, now }) {
+    return Math.max(0, armedAt + minutes * 60 * 1000 - now);
+}
+
+module.exports = { IDLE_LEVELS, DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer, idleDelayMs };

@@ -108,7 +108,7 @@ test('orphanedHoldPids finds only our capped holds left behind by a crashed app'
     assert.deepEqual(orphanedHoldPids(table), [10]);
 });
 
-function fakeWatcher (t, { psDelays = [] } = {}) {
+function fakeWatcher (t, { psDelays = [], alive = new Set() } = {}) {
     const holds = [];
     let calls = 0;
     const runner = {
@@ -119,7 +119,8 @@ function fakeWatcher (t, { psDelays = [] } = {}) {
             holds.push({ pid, child });
             return child;
         },
-        kill: () => {}
+        kill: () => {},
+        isAlive: (pid) => alive.has(pid)
     };
     const watcher = new ClaudeWatcher({ runner, scanIntervalMs: 60_000 });
     t.after(() => watcher.stop());
@@ -224,4 +225,22 @@ test('a suspended scan holds nothing until resumed', async (t) => {
     watcher.resume();
     await watcher.queue;
     assert.equal(watcher.count, 3);
+});
+
+test('the watcher records why the last hold ended', async (t) => {
+    const alive = new Set([800]);
+    const { watcher, holds } = fakeWatcher(t, { alive });
+    watcher.start('hooks');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=600');
+    await watcher.handleUrl('mac-insomnia://claude?state=idle&pid=600');
+    assert.equal(watcher.lastReleaseReason, 'idle');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=600');
+    holds.at(-1).child.emit('exit');
+    assert.equal(watcher.lastReleaseReason, 'exited');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=800');
+    holds.at(-1).child.emit('exit');
+    assert.equal(watcher.lastReleaseReason, 'expired');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=800');
+    watcher.stop();
+    assert.equal(watcher.lastReleaseReason, 'stopped');
 });

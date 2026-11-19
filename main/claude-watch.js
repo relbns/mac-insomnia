@@ -127,7 +127,15 @@ function defaultRunner () {
             execFile('/bin/ps', ['-axo', 'pid=,ppid=,args='], { timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => (err ? reject(err) : resolve(parseProcessTable(out))));
         }),
         holdWhileAlive: (pid) => spawn('/usr/bin/caffeinate', holdArgs(pid), { stdio: 'ignore' }),
-        kill: (pid) => process.kill(pid, 'SIGTERM')
+        kill: (pid) => process.kill(pid, 'SIGTERM'),
+        isAlive: (pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch (error) {
+                return error.code === 'EPERM';
+            }
+        }
     };
 }
 
@@ -144,6 +152,7 @@ class ClaudeWatcher {
         this.queue = Promise.resolve();
         this.suspended = false;
         this.busyWhileSuspended = new Set();
+        this.lastReleaseReason = null;
     }
 
     get count () {
@@ -181,7 +190,7 @@ class ClaudeWatcher {
         if (this.suspended) return;
         this.suspended = true;
         this.busyWhileSuspended = new Set(this.holds.keys());
-        for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false });
+        for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false, reason: 'suspended' });
         this.onChange();
     }
 
@@ -200,7 +209,7 @@ class ClaudeWatcher {
         clearInterval(this.scanTimer);
         this.scanTimer = null;
         this.mode = 'off';
-        if (!keepHolds) for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false });
+        if (!keepHolds) for (const pid of [...this.holds.keys()]) this.release(pid, { notify: false, reason: 'stopped' });
     }
 
     hold (pid) {
@@ -208,11 +217,12 @@ class ClaudeWatcher {
         const child = this.runner.holdWhileAlive(pid);
         child.once('error', (error) => {
             this.onError(error);
-            this.release(pid);
+            this.release(pid, { reason: 'error' });
         });
         child.once('exit', () => {
             if (this.holds.get(pid) !== child) return;
             this.holds.delete(pid);
+            this.lastReleaseReason = this.runner.isAlive(pid) ? 'expired' : 'exited';
             this.onChange();
         });
         this.holds.set(pid, child);
@@ -220,10 +230,11 @@ class ClaudeWatcher {
         this.onChange();
     }
 
-    release (pid, { notify = true } = {}) {
+    release (pid, { notify = true, reason = 'idle' } = {}) {
         const child = this.holds.get(pid);
         if (!child) return;
         this.holds.delete(pid);
+        this.lastReleaseReason = reason;
         child.kill('SIGTERM');
         if (notify) this.onChange();
     }

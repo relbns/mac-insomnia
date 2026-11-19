@@ -4,7 +4,7 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeArgs } = require('./keep-awake-args');
-const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer } = require('./claude-lid');
+const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer, idleDelayMs } = require('./claude-lid');
 const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
 const { parseCommandUrl } = require('./url-commands');
@@ -48,6 +48,10 @@ let warningNotification = null;
 let timerArmedAt = null;
 let lidIdleTimer = null;
 let lidIdleMinutes = null;
+let lidIdleArmedAt = null;
+let lidSawClaudeWork = false;
+let lidIdleFired = false;
+let lidStartedPlayback = false;
 let warnedForEndTime = null;
 let soundProcess = null;
 let cachedMenu = null;
@@ -148,6 +152,7 @@ function settingsForRenderer () {
         ...settings,
         batteryGuardPercent: normalizeGuardPercent(settings.batteryGuardPercent),
         lidEndsWhenClaudeIdle: normalizeIdleMinutes(settings.lidEndsWhenClaudeIdle),
+        claudeHooksInstalled: claudeHooksInstalled(),
         isDevelopment: isDevelopment(),
         accentColor: `#${accent.slice(0, 6)}`
     };
@@ -166,6 +171,8 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 function secureWebPreferences () {
     return { preload: PRELOAD_PATH, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: true };
 }
+
+const WINDOW_SCREEN_MARGIN = 60;
 
 function openWindow (existing, options, file) {
     if (existing) {
@@ -188,7 +195,7 @@ function openWindow (existing, options, file) {
     win.loadFile(path.join(RENDERER_PATH, file));
     win.once('ready-to-show', async () => {
         const height = await win.webContents.executeJavaScript('document.documentElement.scrollHeight').catch(() => null);
-        const maxHeight = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workAreaSize.height - 60;
+        const maxHeight = screen.getDisplayMatching(win.getBounds()).workAreaSize.height - WINDOW_SCREEN_MARGIN;
         if (Number.isInteger(height) && height > 0) win.setContentSize(win.getContentSize()[0], Math.min(height, maxHeight));
         win.center();
         win.show();
@@ -262,7 +269,7 @@ function lidMenuItems () {
         items.push({ label: '⚠︎ Sleep is disabled system-wide', enabled: false });
         items.push({ label: 'Keep the Mac on power and out of bags', enabled: false });
         const idleMinutes = normalizeIdleMinutes(settings.lidEndsWhenClaudeIdle);
-        if (settings.smartMode && idleMinutes) items.push({ label: `Ends after ${idleMinutes} min with Claude idle`, enabled: false });
+        if (settings.smartMode && idleMinutes && claudeWatcher?.mode === 'hooks') items.push({ label: `Ends ${idleMinutes} min after Claude finishes`, enabled: false });
     } else if (!lidSleep.pending && lidSleep.systemSleepDisabled !== false) {
         const label = lidSleep.systemSleepDisabled === null ? '⚠︎ Could not read the sleep setting' : '⚠︎ Sleep is disabled system-wide (not by this session)';
         items.push({ label, enabled: false });
@@ -294,29 +301,58 @@ function toggleSmartMode () {
 }
 
 function setSmartMode (value) {
+    if (settings.smartMode === value) return;
     settings.smartMode = value;
     saveSettings();
     applySmartMode();
 }
 
 function updateLidIdleTimer () {
+    const lidActive = Boolean(lidSleep?.active);
+    const claudeBusy = Boolean(claudeWatcher?.count);
+    if (!lidActive) {
+        lidSawClaudeWork = false;
+        lidIdleFired = false;
+    } else if (claudeBusy) {
+        lidSawClaudeWork = true;
+    }
     const minutes = normalizeIdleMinutes(settings.lidEndsWhenClaudeIdle);
-    const arm = shouldArmIdleTimer({ idleMinutes: minutes, smartMode: settings.smartMode, lidActive: Boolean(lidSleep?.active), claudeBusy: Boolean(claudeWatcher?.count) });
-    if (arm && lidIdleTimer && lidIdleMinutes === minutes) return;
+    const arm = !lidIdleFired && shouldArmIdleTimer({
+        idleMinutes: minutes,
+        smartMode: settings.smartMode,
+        lidActive,
+        claudeBusy,
+        sawClaudeWork: lidSawClaudeWork,
+        lastReleaseReason: claudeWatcher?.lastReleaseReason
+    });
+    if (!arm) {
+        clearTimeout(lidIdleTimer);
+        lidIdleTimer = null;
+        lidIdleMinutes = null;
+        lidIdleArmedAt = null;
+        return;
+    }
+    lidIdleArmedAt ??= Date.now();
+    if (lidIdleTimer && lidIdleMinutes === minutes) return;
     clearTimeout(lidIdleTimer);
-    lidIdleTimer = null;
-    lidIdleMinutes = null;
-    if (!arm) return;
     lidIdleMinutes = minutes;
-    lidIdleTimer = setTimeout(() => onClaudeIdleTooLong(minutes), minutes * 60 * 1000);
+    lidIdleTimer = setTimeout(() => onClaudeIdleTooLong(minutes), idleDelayMs({ armedAt: lidIdleArmedAt, minutes, now: Date.now() }));
 }
 
-function onClaudeIdleTooLong (minutes) {
+async function onClaudeIdleTooLong (minutes) {
     lidIdleTimer = null;
-    lidIdleMinutes = null;
-    if (!lidSleep.active || !settings.smartMode || claudeWatcher?.count) return;
-    stopPlayback();
-    notify('Claude is done', `No Claude Code session has worked for ${minutes} minutes, so Insomnia turned off Lid Closed Mode and let the Mac sleep.`);
+    lidIdleArmedAt = null;
+    if (!lidSleep.active) return;
+    lidIdleFired = true;
+    const startedByLid = lidStartedPlayback;
+    const result = await disableLidMode();
+    if (result?.restored) {
+        if (startedByLid) stopPlayback();
+        notify('Claude is done', startedByLid
+            ? `No Claude Code session has worked for ${minutes} minutes, so Insomnia ended the session it started for Lid Closed Mode. The Mac can sleep now.`
+            : `No Claude Code session has worked for ${minutes} minutes, so Insomnia turned off Lid Closed Mode. With the lid closed, the Mac can sleep now; your Insomnia session keeps running.`);
+    }
+    refreshTray();
 }
 
 function smartStatusLabel () {
@@ -743,6 +779,7 @@ function toggleLidMode () {
     return runLidTask(async () => {
         if (!(await confirmLidMode())) return;
         const wasPlaying = isPlaying;
+        lidStartedPlayback = !wasPlaying;
         startPlayback();
         const result = await lidSleep.enable();
         if (result.ok) {
