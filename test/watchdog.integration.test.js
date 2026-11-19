@@ -8,12 +8,17 @@ const { LidSleepController } = require('../main/lid-sleep');
 
 const darwin = process.platform === 'darwin';
 
-function setup () {
+function setup (t) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lid-watchdog-'));
     const state = path.join(dir, 'state');
     const fakePmset = path.join(dir, 'fake pmset');
     fs.writeFileSync(fakePmset, `#!/bin/sh\necho "$@" >> '${dir}/calls'\nif [ "$1" = "-a" ] && [ "$2" = "disablesleep" ]; then echo "$3" > '${state}'; fi\nif [ "$1" = "-g" ]; then echo "System-wide power settings:"; echo " SleepDisabled $(cat '${state}' 2>/dev/null || echo 0)"; fi\n`, { mode: 0o755 });
     const owner = spawn('/bin/sleep', ['120'], { stdio: 'ignore' });
+    t.after(() => {
+        owner.kill('SIGKILL');
+        controller.killToken();
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
     const runner = {
         readPmset: () => new Promise((resolve, reject) => execFile(fakePmset, ['-g'], (e, out) => (e ? reject(e) : resolve(out)))),
         osascript: (script) => new Promise((resolve, reject) => execFile('/usr/bin/osascript', ['-e', script], (e, out, err) => (e ? reject(Object.assign(e, { stderr: err })) : resolve(out)))),
@@ -46,20 +51,20 @@ const waitFor = async (fn, ms = 4000) => {
     return fn();
 };
 
-test('turning the mode off restores sleep through the watchdog, no second prompt', { skip: !darwin }, async () => {
-    const { owner, controller, read, watchdogs } = setup();
+test('turning the mode off restores sleep through the watchdog, no second prompt', { skip: !darwin }, async (t) => {
+    const { owner, controller, read, watchdogs } = setup(t);
     assert.equal((await controller.enable()).ok, true);
     assert.equal(read(), '1');
     assert.notEqual(watchdogs(), '', 'watchdog survives osascript exit');
+    assert.equal(controller.watchdogAlive(), true, 'watchdog pid file points at a live process');
     const result = await controller.disable({ allowPrompt: false });
     assert.deepEqual(result, { restored: true, via: 'watchdog' });
     assert.equal(read(), '0');
     assert.equal(await waitFor(() => watchdogs() === ''), true);
-    owner.kill('SIGKILL');
 });
 
-test('a SIGKILLed app restores sleep and leaves no process behind', { skip: !darwin }, async () => {
-    const { owner, controller, read, watchdogs } = setup();
+test('a SIGKILLed app restores sleep and leaves no process behind', { skip: !darwin }, async (t) => {
+    const { owner, controller, read, watchdogs } = setup(t);
     assert.equal((await controller.enable()).ok, true);
     const tokenPid = controller.token.pid;
     assert.equal(read(), '1');

@@ -118,8 +118,8 @@
 
         document.getElementById('saveButton').addEventListener('click', () => {
             window.insomnia.saveSettings({
-                defaultDuration: document.querySelector('input[name="defaultDuration"]:checked').value,
-                iconSet: document.querySelector('input[name="iconSet"]:checked').value,
+                defaultDuration: document.querySelector('input[name="defaultDuration"]:checked')?.value ?? 'null',
+                iconSet: document.querySelector('input[name="iconSet"]:checked')?.value ?? 'set1',
                 soundEnabled: document.getElementById('soundEnabled').checked,
                 startAtLogin: document.getElementById('startAtLogin').checked
             });

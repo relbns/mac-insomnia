@@ -36,6 +36,8 @@ let cachedMenu = null;
 let lidSleep = null;
 let lidBusy = false;
 let quitting = false;
+let shuttingDown = false;
+let pmsetRefresh = null;
 const iconCache = new Map();
 
 function isDevelopment () {
@@ -85,7 +87,7 @@ ipcMain.on('save-settings', (_event, newSettings) => {
     const previousDefault = parseDuration(settings.defaultDuration);
     settings = {
         ...settings,
-        defaultDuration: newSettings.defaultDuration,
+        defaultDuration: parseDuration(newSettings.defaultDuration),
         iconSet: newSettings.iconSet === 'set2' ? 'set2' : 'set1',
         soundEnabled: Boolean(newSettings.soundEnabled)
     };
@@ -177,17 +179,18 @@ function formatTimeRemaining () {
 
 function lidMenuItems () {
     const items = [{
-        label: 'Keep Awake with Lid Closed',
+        label: lidSleep.pending ? 'Keep Awake with Lid Closed (waiting for password)' : 'Keep Awake with Lid Closed',
         type: 'checkbox',
-        checked: Boolean(lidSleep?.active),
+        checked: lidSleep.active || lidSleep.pending,
         enabled: !lidBusy,
         click: () => toggleLidMode()
     }];
-    if (lidSleep?.active) {
+    if (lidSleep.active) {
         items.push({ label: '⚠︎ Sleep is disabled system-wide', enabled: false });
         items.push({ label: 'Keep the Mac on power and out of bags', enabled: false });
-    } else if (lidSleep?.systemSleepDisabled) {
-        items.push({ label: '⚠︎ Sleep is disabled system-wide (not by this session)', enabled: false });
+    } else if (!lidSleep.pending && lidSleep.systemSleepDisabled !== false) {
+        const label = lidSleep.systemSleepDisabled === null ? '⚠︎ Could not read the sleep setting' : '⚠︎ Sleep is disabled system-wide (not by this session)';
+        items.push({ label, enabled: false });
         items.push({ label: 'Restore Normal Sleep…', enabled: !lidBusy, click: () => restoreLeftOver() });
     }
     return items;
@@ -216,20 +219,30 @@ function invalidateMenu () {
     cachedMenu = null;
 }
 
-async function showMenu () {
-    if (lidSleep && !lidSleep.active) {
-        const before = lidSleep.systemSleepDisabled;
-        if (before !== (await lidSleep.refresh())) invalidateMenu();
-    }
+function refreshSleepState () {
+    if (!lidSleep || lidSleep.active || lidSleep.pending || pmsetRefresh) return;
+    const before = lidSleep.systemSleepDisabled;
+    pmsetRefresh = lidSleep.refresh()
+        .then((after) => { if (after !== before) invalidateMenu(); })
+        .finally(() => { pmsetRefresh = null; });
+}
+
+function showMenu () {
     if (isPlaying && endTime) invalidateMenu();
     cachedMenu ??= createContextMenu();
     tray.popUpContextMenu(cachedMenu);
 }
 
+function onTrayHover () {
+    updateTooltip();
+    refreshSleepState();
+}
+
 function updateTooltip () {
     if (!tray) return;
     const lid = lidSleep?.active ? ' - lid closed mode' : '';
-    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}` : 'Insomnia - Stopped');
+    const warning = lidSleep && !lidSleep.active && lidSleep.systemSleepDisabled !== false ? ' - sleep disabled system-wide' : '';
+    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}` : `Insomnia - Stopped${warning}`);
 }
 
 function refreshTray () {
@@ -244,7 +257,7 @@ function createTray () {
     tray.setIgnoreDoubleClickEvents(true);
     tray.on('click', () => showMenu());
     tray.on('right-click', () => togglePlayback());
-    tray.on('mouse-enter', updateTooltip);
+    tray.on('mouse-enter', onTrayHover);
     refreshTray();
 }
 
@@ -277,7 +290,10 @@ function armTimer () {
 }
 
 function onTimerEnd () {
-    if (endTime && Date.now() < endTime) {
+    clearTimeout(endTimer);
+    endTimer = null;
+    if (!isPlaying || !endTime) return;
+    if (Date.now() < endTime) {
         endTimer = setTimeout(onTimerEnd, endTime - Date.now());
         return;
     }
@@ -301,7 +317,8 @@ function stopPlayback () {
     clearTimeout(endTimer);
     endTimer = null;
     endTime = null;
-    if (lidSleep?.active) disableLidMode();
+    if (lidSleep.active) disableLidMode();
+    else if (lidSleep.pending) lidSleep.killToken();
     refreshTray();
 }
 
@@ -336,63 +353,80 @@ async function confirmLidMode () {
     return response === 0;
 }
 
-async function toggleLidMode () {
-    if (lidBusy) return;
+async function runLidTask (task) {
+    if (lidBusy) return undefined;
+    lidBusy = true;
+    invalidateMenu();
+    try {
+        return await task();
+    } catch (error) {
+        console.error('Lid closed mode:', error);
+        notify('Lid closed mode error', String(error?.message || error));
+        return undefined;
+    } finally {
+        lidBusy = false;
+        refreshTray();
+    }
+}
+
+const ENABLE_REFUSALS = {
+    'already-disabled': 'Sleep is already disabled on this Mac by something else. Restore it from the Insomnia menu first, or leave it as it is.',
+    'state-unknown': 'Could not read the current sleep setting (pmset -g), so lid closed mode was not turned on.'
+};
+
+function toggleLidMode () {
     if (lidSleep.active) return disableLidMode();
-    if (!(await confirmLidMode())) return;
-    lidBusy = true;
-    invalidateMenu();
-    const wasPlaying = isPlaying;
-    startPlayback();
-    const result = await lidSleep.enable();
-    lidBusy = false;
-    if (!result.ok) {
+    return runLidTask(async () => {
+        if (!(await confirmLidMode())) return;
+        const wasPlaying = isPlaying;
+        startPlayback();
+        const result = await lidSleep.enable();
+        if (result.ok) {
+            if (!isPlaying) await lidSleep.disable({ allowPrompt: true });
+            return;
+        }
         if (!wasPlaying) stopPlayback();
-        if (!result.canceled) notify('Lid closed mode failed', String(result.error?.message || result.error));
-    }
-    refreshTray();
+        if (result.reason === 'stopped') return;
+        if (ENABLE_REFUSALS[result.reason]) notify('Lid closed mode is off', ENABLE_REFUSALS[result.reason]);
+        else if (!result.canceled) notify('Lid closed mode failed', String(result.error?.message || result.error));
+        if (result.restored === false) notify('Sleep is still disabled', 'Open the Insomnia menu and choose "Restore Normal Sleep…".');
+    });
 }
 
-async function disableLidMode ({ allowPrompt = true } = {}) {
-    if (lidBusy) return;
-    lidBusy = true;
-    invalidateMenu();
-    const result = await lidSleep.disable({ allowPrompt });
-    lidBusy = false;
-    if (!result.restored) notify('Sleep is still disabled', 'Normal sleep could not be restored. Open the Insomnia menu and choose "Restore Normal Sleep…".');
-    refreshTray();
-    return result;
+function disableLidMode () {
+    return runLidTask(async () => {
+        const result = await lidSleep.disable({ allowPrompt: true });
+        if (!result.restored) notify('Sleep is still disabled', 'Normal sleep could not be restored. Open the Insomnia menu and choose "Restore Normal Sleep…".');
+        return result;
+    });
 }
 
-async function onLidModeEndedUnexpectedly () {
-    const stillDisabled = await lidSleep.refresh();
-    if (stillDisabled) {
-        await restoreLeftOver();
-    } else {
-        lidSleep.clearMarker();
-        notify('Lid closed mode ended', 'Normal sleep is restored.');
-    }
-    refreshTray();
+function restoreLeftOver () {
+    return runLidTask(async () => {
+        const result = await lidSleep.restoreWithPrompt();
+        if (!result.restored) notify('Sleep is still disabled', 'Open the Insomnia menu and choose "Restore Normal Sleep…".');
+        return result;
+    });
 }
 
-async function restoreLeftOver () {
-    if (lidBusy) return;
-    lidBusy = true;
-    invalidateMenu();
-    const result = await lidSleep.restoreWithPrompt();
-    lidBusy = false;
-    if (!result.restored && !result.canceled) notify('Sleep is still disabled', String(result.error?.message || 'pmset still reports SleepDisabled'));
+async function onLidModeEndedUnexpectedly ({ restored }) {
+    if (isPlaying) stopPlayback();
+    if (restored) notify('Lid closed mode ended', 'Its helper process stopped. Normal sleep is restored.');
+    else await restoreLeftOver();
     refreshTray();
 }
 
 async function checkLeftOverOnLaunch () {
+    const enabledAt = lidSleep.readMarker()?.enabledAt;
     const action = await lidSleep.startupAction();
     if (action === 'restore-left-over') {
-        notify('Restoring normal sleep', 'Mac Insomnia did not exit cleanly while lid closed mode was on. Sleep is still disabled.');
+        const since = enabledAt ? ` (turned on ${new Date(enabledAt).toLocaleString()})` : '';
+        notify('Restoring normal sleep', `Lid closed mode was still on when Mac Insomnia last stopped${since}.`);
         await restoreLeftOver();
-        if (lidSleep.systemSleepDisabled) notify('Sleep is still disabled', 'Open the Insomnia menu and choose "Restore Normal Sleep…".');
     } else if (action === 'report-external') {
         notify('Sleep is disabled on this Mac', 'Something set pmset disablesleep. The Insomnia menu can restore normal sleep.');
+    } else if (action === 'report-unknown') {
+        notify('Sleep setting unknown', 'Could not read pmset -g. The Insomnia menu can restore normal sleep.');
     }
     refreshTray();
 }
@@ -439,17 +473,23 @@ if (!app.requestSingleInstanceLock()) {
         powerMonitor.on('resume', () => {
             if (endTimer) onTimerEnd();
         });
+        powerMonitor.on('shutdown', () => {
+            shuttingDown = true;
+            lidSleep.killToken();
+            app.quit();
+        });
         await checkLeftOverOnLaunch();
     }).catch(console.error);
 
     app.on('before-quit', (event) => {
         quitting = true;
-        if (lidBusy) {
+        if (lidSleep?.pending || shuttingDown) lidSleep?.killToken();
+        if (!shuttingDown && lidBusy && !lidSleep?.pending) {
             event.preventDefault();
             setTimeout(() => app.quit(), 200);
             return;
         }
-        if (lidSleep?.active) {
+        if (!shuttingDown && lidSleep?.active) {
             event.preventDefault();
             disableLidMode().finally(() => app.quit());
             return;

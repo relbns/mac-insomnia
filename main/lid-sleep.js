@@ -18,10 +18,11 @@ function appleScriptString (value) {
     return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function buildEnableCommand ({ tokenPid, pmsetPath = PMSET, caffeinatePath = CAFFEINATE }) {
+function buildEnableCommand ({ tokenPid, watchdogPidFile, pmsetPath = PMSET, caffeinatePath = CAFFEINATE }) {
     if (!Number.isInteger(tokenPid) || tokenPid <= 0) throw new Error(`invalid token pid: ${tokenPid}`);
+    if (!watchdogPidFile) throw new Error('missing watchdog pid file');
     const watchdog = `${shellQuote(caffeinatePath)} -w ${tokenPid}; ${shellQuote(pmsetPath)} -a disablesleep 0`;
-    return `${shellQuote(pmsetPath)} -a disablesleep 1 && { /usr/bin/nohup /bin/sh -c ${shellQuote(watchdog)} >/dev/null 2>&1 & }`;
+    return `${shellQuote(pmsetPath)} -a disablesleep 1 && { /usr/bin/nohup /bin/sh -c ${shellQuote(watchdog)} >/dev/null 2>&1 & echo $! > ${shellQuote(watchdogPidFile)}; }`;
 }
 
 function buildRestoreCommand ({ pmsetPath = PMSET } = {}) {
@@ -35,10 +36,21 @@ function buildOsascript ({ command, prompt, privileged = true }) {
 }
 
 function decideStartupAction ({ sleepDisabled, markerExists }) {
-    if (sleepDisabled && markerExists) return 'restore-left-over';
-    if (sleepDisabled) return 'report-external';
+    if (sleepDisabled !== false && markerExists) return 'restore-left-over';
+    if (sleepDisabled === true) return 'report-external';
+    if (sleepDisabled === null) return 'report-unknown';
     if (markerExists) return 'clear-marker';
     return 'none';
+}
+
+function isProcessAlive (pid) {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return error.code === 'EPERM';
+    }
 }
 
 function isUserCancel (error) {
@@ -65,6 +77,7 @@ function defaultRunner () {
 class LidSleepController {
     constructor ({ markerPath, ownerPid = process.pid, runner = defaultRunner(), commandOptions = {}, privileged = true, restoreWaitMs = 3000, restorePollMs = 250, onUnexpectedEnd = () => {} }) {
         this.markerPath = markerPath;
+        this.watchdogPidFile = `${markerPath}.watchdog-pid`;
         this.ownerPid = ownerPid;
         this.runner = runner;
         this.commandOptions = commandOptions;
@@ -73,18 +86,23 @@ class LidSleepController {
         this.restorePollMs = restorePollMs;
         this.onUnexpectedEnd = onUnexpectedEnd;
         this.token = null;
+        this.enabled = false;
         this.systemSleepDisabled = false;
     }
 
     get active () {
-        return Boolean(this.token);
+        return Boolean(this.token) && this.enabled;
+    }
+
+    get pending () {
+        return Boolean(this.token) && !this.enabled;
     }
 
     async refresh () {
         try {
             this.systemSleepDisabled = parseSleepDisabled(await this.runner.readPmset());
         } catch {
-            this.systemSleepDisabled = false;
+            this.systemSleepDisabled = null;
         }
         return this.systemSleepDisabled;
     }
@@ -93,12 +111,29 @@ class LidSleepController {
         return fs.existsSync(this.markerPath);
     }
 
+    readMarker () {
+        try {
+            return JSON.parse(fs.readFileSync(this.markerPath, 'utf8'));
+        } catch {
+            return null;
+        }
+    }
+
     writeMarker () {
-        fs.writeFileSync(this.markerPath, JSON.stringify({ ownerPid: this.ownerPid, tokenPid: this.token.pid, enabledAt: new Date().toISOString() }));
+        fs.writeFileSync(this.markerPath, JSON.stringify({ enabledAt: new Date().toISOString() }));
     }
 
     clearMarker () {
         fs.rmSync(this.markerPath, { force: true });
+        fs.rmSync(this.watchdogPidFile, { force: true });
+    }
+
+    watchdogAlive () {
+        try {
+            return isProcessAlive(Number(fs.readFileSync(this.watchdogPidFile, 'utf8').trim()));
+        } catch {
+            return false;
+        }
     }
 
     async startupAction () {
@@ -109,19 +144,22 @@ class LidSleepController {
     }
 
     async enable () {
-        if (this.token) return { ok: true };
-        const token = this.runner.spawnToken(this.ownerPid);
-        this.token = token;
-        token.on?.('exit', () => {
-            if (this.token !== token) return;
-            this.token = null;
-            this.onUnexpectedEnd();
-        });
-        this.writeMarker();
-        const command = buildEnableCommand({ tokenPid: this.token.pid, ...this.commandOptions });
+        if (this.token) return { ok: this.enabled, busy: !this.enabled };
+        const before = await this.refresh();
+        if (before !== false) return { ok: false, reason: before === null ? 'state-unknown' : 'already-disabled' };
+
+        let token;
         try {
+            token = this.runner.spawnToken(this.ownerPid);
+            token.once('error', () => {});
+            if (!Number.isInteger(token.pid)) throw new Error('could not start the helper process');
+            this.token = token;
+            this.enabled = false;
+            token.once('exit', () => this.handleTokenExit(token));
+            fs.rmSync(this.watchdogPidFile, { force: true });
+            this.writeMarker();
             await this.runner.osascript(buildOsascript({
-                command,
+                command: buildEnableCommand({ tokenPid: token.pid, watchdogPidFile: this.watchdogPidFile, ...this.commandOptions }),
                 prompt: 'Mac Insomnia needs your password to keep the Mac awake with the lid closed. Normal sleep is restored when the mode ends.',
                 privileged: this.privileged
             }));
@@ -130,29 +168,49 @@ class LidSleepController {
             this.clearMarker();
             return { ok: false, canceled: isUserCancel(error), error };
         }
-        if (!(await this.refresh())) {
-            this.killToken();
-            this.clearMarker();
-            return { ok: false, canceled: false, error: new Error('pmset did not report SleepDisabled after enabling') };
+
+        if (this.token !== token) {
+            const restored = await this.waitForRestore();
+            if (restored) this.clearMarker();
+            return { ok: false, reason: 'stopped', restored };
         }
+        if (!this.watchdogAlive()) {
+            this.killToken();
+            const restore = await this.restoreWithPrompt();
+            return { ok: false, restored: restore.restored, error: new Error('The restore watchdog did not start, so lid closed mode was turned off') };
+        }
+        if ((await this.refresh()) !== true) {
+            const restore = await this.disable({ allowPrompt: true });
+            return { ok: false, restored: restore.restored, error: new Error('pmset did not report SleepDisabled after enabling') };
+        }
+        this.enabled = true;
         return { ok: true };
     }
 
-    killToken () {
-        if (!this.token) return;
-        try {
-            this.token.kill('SIGTERM');
-        } catch {}
+    async handleTokenExit (token) {
+        if (this.token !== token) return;
+        const wasEnabled = this.enabled;
         this.token = null;
+        this.enabled = false;
+        const restored = await this.waitForRestore();
+        if (restored) this.clearMarker();
+        if (wasEnabled) this.onUnexpectedEnd({ restored });
+    }
+
+    killToken () {
+        const token = this.token;
+        this.token = null;
+        this.enabled = false;
+        if (token) token.kill('SIGTERM');
     }
 
     async waitForRestore () {
         const deadline = Date.now() + this.restoreWaitMs;
         while (Date.now() < deadline) {
-            if (!(await this.refresh())) return true;
+            if ((await this.refresh()) === false) return true;
             await new Promise((resolve) => setTimeout(resolve, this.restorePollMs));
         }
-        return !(await this.refresh());
+        return (await this.refresh()) === false;
     }
 
     async disable ({ allowPrompt = true } = {}) {
@@ -176,7 +234,7 @@ class LidSleepController {
             await this.refresh();
             return { restored: false, canceled: isUserCancel(error), error };
         }
-        const restored = !(await this.refresh());
+        const restored = (await this.refresh()) === false;
         if (restored) this.clearMarker();
         return { restored, via: 'prompt' };
     }
@@ -186,10 +244,8 @@ module.exports = {
     LidSleepController,
     parseSleepDisabled,
     buildEnableCommand,
-    buildRestoreCommand,
     buildOsascript,
     decideStartupAction,
     isUserCancel,
-    shellQuote,
-    appleScriptString
+    isProcessAlive
 };
