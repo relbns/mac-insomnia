@@ -95,8 +95,7 @@
     </footer>
 
     <script>
-        const { ipcRenderer } = require('electron');
-        ipcRenderer.invoke('get-app-version').then(version => {
+        window.insomnia.getVersion().then((version) => {
             document.getElementById('version').textContent = `Version ${version}`;
         });
     </script>

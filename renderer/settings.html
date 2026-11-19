@@ -94,51 +94,35 @@
         </div>
         <div class="checkbox-group">
             <label><input type="checkbox" id="startAtLogin"> Start at Login</label>
+            <div class="disabled-note" id="devNote" hidden>Start at login is disabled in development mode</div>
         </div>
     </div>
 
     <button id="saveButton">Save Settings</button>
 
     <script>
-        const { ipcRenderer } = require('electron');
-
-        // Helper function to check if running in development
-        function isDevelopment () {
-            try {
-                return !require('electron').app.isPackaged;
-            } catch (e) {
-                return process.defaultApp || /[\\/]electron-prebuilt[\\/]/.test(process.execPath) || /[\\/]electron[\\/]/.test(process.execPath);
-            }
-        }
-
-        // Load settings when window opens
-        ipcRenderer.on('load-settings', (event, settings) => {
-            document.querySelector(`input[name="defaultDuration"][value="${settings.defaultDuration}"]`).checked = true;
+        window.insomnia.getSettings().then((settings) => {
+            const duration = settings.defaultDuration === null ? 'null' : String(settings.defaultDuration);
+            const durationInput = document.querySelector(`input[name="defaultDuration"][value="${duration}"]`);
+            if (durationInput) durationInput.checked = true;
             document.querySelector(`input[name="iconSet"][value="${settings.iconSet}"]`).checked = true;
             document.getElementById('soundEnabled').checked = settings.soundEnabled;
 
-            const startAtLoginCheckbox = document.getElementById('startAtLogin');
-            startAtLoginCheckbox.checked = settings.startAtLogin;
-
-            if (isDevelopment()) {
-                startAtLoginCheckbox.disabled = true;
-                const note = document.createElement('div');
-                note.className = 'disabled-note';
-                note.textContent = 'Start at login is disabled in development mode';
-                startAtLoginCheckbox.parentElement.parentElement.appendChild(note);
+            const startAtLogin = document.getElementById('startAtLogin');
+            startAtLogin.checked = settings.startAtLogin;
+            if (settings.isDevelopment) {
+                startAtLogin.disabled = true;
+                document.getElementById('devNote').hidden = false;
             }
         });
 
-        // Save settings when button is clicked
         document.getElementById('saveButton').addEventListener('click', () => {
-            const settings = {
-                defaultDuration: document.querySelector('input[name="defaultDuration"]:checked').value,
-                iconSet: document.querySelector('input[name="iconSet"]:checked').value,
+            window.insomnia.saveSettings({
+                defaultDuration: document.querySelector('input[name="defaultDuration"]:checked')?.value ?? 'null',
+                iconSet: document.querySelector('input[name="iconSet"]:checked')?.value ?? 'set1',
                 soundEnabled: document.getElementById('soundEnabled').checked,
-                startAtLogin: isDevelopment() ? false : document.getElementById('startAtLogin').checked
-            };
-
-            ipcRenderer.send('save-settings', settings);
+                startAtLogin: document.getElementById('startAtLogin').checked
+            });
             window.close();
         });
     </script>
