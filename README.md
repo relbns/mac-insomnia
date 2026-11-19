@@ -17,6 +17,7 @@
 
 - 🕹️ **Menu Bar Control** – Toggle sleep prevention instantly
 - ⏱️ **Set Duration** – Choose 30 min, 1 hour, 2 hours, or infinite
+- 🔋 **Battery Guard** – Stops keeping the Mac awake when the battery runs low (20% by default), and turns off Lid Closed Mode on battery
 - 🖥️ **Let the Display Sleep** – Keep the Mac running but let the screen turn off, to save power during downloads, builds or long Claude runs
 - 🔊 **Sound Effects** – Optional feedback for start/stop
 - 🧠 **Start at Login** – Launch automatically with macOS
@@ -84,6 +85,21 @@ dist/
 - Normal sleep (`disablesleep 0`) is restored when you turn the mode off, when the timer ends and when you quit, with no second password. The same administrator prompt starts a one-shot root launchd job that waits on a helper process tied to the app. When the helper ends, for any reason including a crash or a force quit, the job restores sleep and removes itself.
 - On launch the app checks `pmset -g`. If sleep is still disabled after an unclean exit (for example a reboot while the mode was on), it asks for the password to restore it. If something else disabled sleep, the menu says so and offers **Restore Normal Sleep…**.
 - The mode always starts off when the app launches.
+
+---
+
+## 🔋 Battery Guard
+
+**Battery Guard** in the menu stops everything that keeps the Mac awake when the battery reaches the level you pick (10, 20, 30 or 50%, 20% by default, or Off):
+- the session;
+- Lid Closed Mode;
+- Smart Mode holds. Smart Mode resumes on its own when power is connected.
+
+A notification says when it does.
+
+- The level is checked with `pmset -g pslog`, a stream of the system's power-source notifications, so Mac Insomnia does not poll. That stream runs only while the guard is on, the Mac is on battery and something is keeping it awake.
+- **Turn Off Lid Closed Mode on Battery** (on by default) turns Lid Closed Mode off as soon as the Mac switches to battery, because a closed Mac running on battery is the case where it can overheat in a bag. With it off, you get a warning instead.
+- Starting a session below the guard level stops it again right away, with the same notification. Lower the level or set it to Off to override.
 
 ---
 

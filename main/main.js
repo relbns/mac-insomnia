@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeArgs } = require('./keep-awake-args');
+const { GUARD_LEVELS, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop } = require('./battery-guard');
 const { parseCommandUrl } = require('./url-commands');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
@@ -25,7 +26,9 @@ let settings = {
     soundEnabled: true,
     startAtLogin: false,
     smartMode: false,
-    allowDisplaySleep: false
+    allowDisplaySleep: false,
+    batteryGuardPercent: 20,
+    lidOffOnBattery: true
 };
 
 let tray = null;
@@ -44,6 +47,9 @@ let quitting = false;
 let shuttingDown = false;
 let pmsetRefresh = null;
 let claudeWatcher = null;
+let batteryMonitor = null;
+let onBattery = false;
+let smartSuspendedByBattery = false;
 const pendingUrls = [];
 const iconCache = new Map();
 
@@ -217,18 +223,20 @@ function detectSmartModeSource () {
 
 function applySmartMode () {
     if (!claudeWatcher) return;
-    if (settings.smartMode) claudeWatcher.start(detectSmartModeSource());
+    if (settings.smartMode && !smartSuspendedByBattery) claudeWatcher.start(detectSmartModeSource());
     else claudeWatcher.stop();
 }
 
 function toggleSmartMode () {
     settings.smartMode = !settings.smartMode;
+    smartSuspendedByBattery = false;
     saveSettings();
     applySmartMode();
 }
 
 function smartStatusLabel () {
     const n = claudeWatcher?.count || 0;
+    if (smartSuspendedByBattery) return 'Paused by Battery Guard until power is connected';
     if (claudeWatcher?.mode === 'hooks') return n ? `Claude is working in ${n} session${n > 1 ? 's' : ''}` : 'Claude is idle';
     return `${n} Claude Code process${n === 1 ? '' : 'es'} open (hooks not installed)`;
 }
@@ -300,6 +308,7 @@ function createContextMenu () {
             submenu: DURATIONS.map(({ label, ms }) => ({ label, type: 'radio', checked: duration === ms, click: () => setDuration(ms) }))
         },
         { label: 'Let the Display Sleep', type: 'checkbox', checked: settings.allowDisplaySleep, click: () => toggleAllowDisplaySleep() },
+        { label: 'Battery Guard', submenu: batteryMenuItems() },
         { type: 'separator' },
         ...lidMenuItems(),
         { type: 'separator' },
@@ -348,6 +357,73 @@ function refreshTray () {
     tray.setImage(trayIcon(isPlaying || Boolean(claudeWatcher?.count)));
     updateTooltip();
     invalidateMenu();
+    updateBatteryMonitoring();
+}
+
+function isKeepingAwake () {
+    return isPlaying || Boolean(lidSleep?.active) || Boolean(claudeWatcher?.count);
+}
+
+function updateBatteryMonitoring () {
+    if (!batteryMonitor) return;
+    const monitor = shouldMonitor({ guardPercent: normalizeGuardPercent(settings.batteryGuardPercent), onBattery, awake: isKeepingAwake() });
+    if (monitor) batteryMonitor.start();
+    else batteryMonitor.stop();
+}
+
+function onBatteryUpdate (state) {
+    onBattery = state.onBattery;
+    const guardPercent = normalizeGuardPercent(settings.batteryGuardPercent);
+    if (!shouldStop({ guardPercent, onBattery, percent: state.percent, awake: isKeepingAwake() })) {
+        updateBatteryMonitoring();
+        return;
+    }
+    stopPlayback();
+    if (claudeWatcher?.count) {
+        smartSuspendedByBattery = true;
+        claudeWatcher.stop();
+    }
+    notify(`Battery at ${state.percent}%`, `Insomnia stopped keeping the Mac awake (Battery Guard: ${guardPercent}%).${smartSuspendedByBattery ? ' Smart Mode resumes when power is connected.' : ''}`);
+    refreshTray();
+}
+
+function setBatteryGuard (percent) {
+    settings.batteryGuardPercent = percent;
+    saveSettings();
+    refreshTray();
+}
+
+function toggleLidOffOnBattery () {
+    settings.lidOffOnBattery = !settings.lidOffOnBattery;
+    saveSettings();
+    refreshTray();
+}
+
+function batteryMenuItems () {
+    const current = normalizeGuardPercent(settings.batteryGuardPercent);
+    return [
+        { label: 'Off', type: 'radio', checked: current === null, click: () => setBatteryGuard(null) },
+        ...GUARD_LEVELS.map((level) => ({ label: `Stop at ${level}%`, type: 'radio', checked: current === level, click: () => setBatteryGuard(level) })),
+        { type: 'separator' },
+        { label: 'Turn Off Lid Closed Mode on Battery', type: 'checkbox', checked: settings.lidOffOnBattery, click: () => toggleLidOffOnBattery() }
+    ];
+}
+
+function onPowerSourceChange (battery) {
+    onBattery = battery;
+    if (battery && lidSleep.active) {
+        if (settings.lidOffOnBattery) {
+            disableLidMode();
+            notify('Lid closed mode turned off', 'The Mac switched to battery. Insomnia keeps it awake only while the lid is open.');
+        } else {
+            notify('Lid closed mode is on battery', 'The Mac will not sleep. Connect power, and never put it in a bag while this is on.');
+        }
+    }
+    if (!battery && smartSuspendedByBattery) {
+        smartSuspendedByBattery = false;
+        applySmartMode();
+    }
+    refreshTray();
 }
 
 function createTray () {
@@ -578,6 +654,8 @@ if (!app.requestSingleInstanceLock()) {
             onUnexpectedEnd: () => onLidModeEndedUnexpectedly()
         });
         handleExternalLinks();
+        onBattery = powerMonitor.isOnBatteryPower();
+        batteryMonitor = new BatteryMonitor({ onUpdate: onBatteryUpdate });
         createTray();
         if (app.isPackaged) app.setAsDefaultProtocolClient(URL_SCHEME);
         claudeWatcher = new ClaudeWatcher({
@@ -587,9 +665,8 @@ if (!app.requestSingleInstanceLock()) {
         claudeWatcher.sweepOrphans();
         applySmartMode();
         pendingUrls.splice(0).forEach(handleUrl);
-        powerMonitor.on('on-battery', () => {
-            if (lidSleep.active) notify('Lid closed mode is on battery', 'The Mac will not sleep. Connect power, and never put it in a bag while this is on.');
-        });
+        powerMonitor.on('on-battery', () => onPowerSourceChange(true));
+        powerMonitor.on('on-ac', () => onPowerSourceChange(false));
         powerMonitor.on('resume', () => {
             if (endTimer) onTimerEnd();
         });
@@ -615,6 +692,7 @@ if (!app.requestSingleInstanceLock()) {
             return;
         }
         stopCaffeinate();
+        batteryMonitor?.stop();
         claudeWatcher?.stop();
         if (soundProcess) soundProcess.kill();
     });
