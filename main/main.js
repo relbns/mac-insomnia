@@ -1,9 +1,10 @@
-const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog, powerMonitor, Notification, shell, systemPreferences } = require('electron');
+const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog, powerMonitor, Notification, shell, systemPreferences, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeArgs } = require('./keep-awake-args');
+const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer } = require('./claude-lid');
 const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
 const { parseCommandUrl } = require('./url-commands');
@@ -30,7 +31,8 @@ let settings = {
     allowDisplaySleep: false,
     batteryGuardPercent: DEFAULT_GUARD_PERCENT,
     lidOffOnBattery: true,
-    timerWarning: true
+    timerWarning: true,
+    lidEndsWhenClaudeIdle: DEFAULT_IDLE_MINUTES
 };
 
 let tray = null;
@@ -44,6 +46,8 @@ let endTimer = null;
 let warnTimer = null;
 let warningNotification = null;
 let timerArmedAt = null;
+let lidIdleTimer = null;
+let lidIdleMinutes = null;
 let warnedForEndTime = null;
 let soundProcess = null;
 let cachedMenu = null;
@@ -123,6 +127,11 @@ const SETTING_APPLIERS = {
         saveSettings();
     },
     allowDisplaySleep: (value) => setAllowDisplaySleep(Boolean(value)),
+    lidEndsWhenClaudeIdle: (value) => {
+        settings.lidEndsWhenClaudeIdle = normalizeIdleMinutes(value);
+        saveSettings();
+    },
+    smartMode: (value) => setSmartMode(Boolean(value)),
     timerWarning: (value) => {
         settings.timerWarning = Boolean(value);
         saveSettings();
@@ -135,7 +144,13 @@ const SETTING_APPLIERS = {
 
 function settingsForRenderer () {
     const accent = systemPreferences.getAccentColor?.() || '007affff';
-    return { ...settings, batteryGuardPercent: normalizeGuardPercent(settings.batteryGuardPercent), isDevelopment: isDevelopment(), accentColor: `#${accent.slice(0, 6)}` };
+    return {
+        ...settings,
+        batteryGuardPercent: normalizeGuardPercent(settings.batteryGuardPercent),
+        lidEndsWhenClaudeIdle: normalizeIdleMinutes(settings.lidEndsWhenClaudeIdle),
+        isDevelopment: isDevelopment(),
+        accentColor: `#${accent.slice(0, 6)}`
+    };
 }
 
 ipcMain.handle('set-setting', (_event, key, value) => {
@@ -173,7 +188,8 @@ function openWindow (existing, options, file) {
     win.loadFile(path.join(RENDERER_PATH, file));
     win.once('ready-to-show', async () => {
         const height = await win.webContents.executeJavaScript('document.documentElement.scrollHeight').catch(() => null);
-        if (Number.isInteger(height) && height > 0) win.setContentSize(win.getContentSize()[0], height);
+        const maxHeight = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workAreaSize.height - 60;
+        if (Number.isInteger(height) && height > 0) win.setContentSize(win.getContentSize()[0], Math.min(height, maxHeight));
         win.center();
         win.show();
     });
@@ -245,6 +261,8 @@ function lidMenuItems () {
     if (lidSleep.active) {
         items.push({ label: '⚠︎ Sleep is disabled system-wide', enabled: false });
         items.push({ label: 'Keep the Mac on power and out of bags', enabled: false });
+        const idleMinutes = normalizeIdleMinutes(settings.lidEndsWhenClaudeIdle);
+        if (settings.smartMode && idleMinutes) items.push({ label: `Ends after ${idleMinutes} min with Claude idle`, enabled: false });
     } else if (!lidSleep.pending && lidSleep.systemSleepDisabled !== false) {
         const label = lidSleep.systemSleepDisabled === null ? '⚠︎ Could not read the sleep setting' : '⚠︎ Sleep is disabled system-wide (not by this session)';
         items.push({ label, enabled: false });
@@ -272,9 +290,33 @@ function applySmartMode () {
 }
 
 function toggleSmartMode () {
-    settings.smartMode = !settings.smartMode;
+    setSmartMode(!settings.smartMode);
+}
+
+function setSmartMode (value) {
+    settings.smartMode = value;
     saveSettings();
     applySmartMode();
+}
+
+function updateLidIdleTimer () {
+    const minutes = normalizeIdleMinutes(settings.lidEndsWhenClaudeIdle);
+    const arm = shouldArmIdleTimer({ idleMinutes: minutes, smartMode: settings.smartMode, lidActive: Boolean(lidSleep?.active), claudeBusy: Boolean(claudeWatcher?.count) });
+    if (arm && lidIdleTimer && lidIdleMinutes === minutes) return;
+    clearTimeout(lidIdleTimer);
+    lidIdleTimer = null;
+    lidIdleMinutes = null;
+    if (!arm) return;
+    lidIdleMinutes = minutes;
+    lidIdleTimer = setTimeout(() => onClaudeIdleTooLong(minutes), minutes * 60 * 1000);
+}
+
+function onClaudeIdleTooLong (minutes) {
+    lidIdleTimer = null;
+    lidIdleMinutes = null;
+    if (!lidSleep.active || !settings.smartMode || claudeWatcher?.count) return;
+    stopPlayback();
+    notify('Claude is done', `No Claude Code session has worked for ${minutes} minutes, so Insomnia turned off Lid Closed Mode and let the Mac sleep.`);
 }
 
 function smartStatusLabel () {
@@ -402,6 +444,7 @@ function refreshTray () {
     updateTooltip();
     invalidateMenu();
     updateBatteryMonitoring();
+    updateLidIdleTimer();
 }
 
 function isKeepingAwake () {
@@ -834,6 +877,7 @@ if (!app.requestSingleInstanceLock()) {
             return;
         }
         stopCaffeinate();
+        clearTimeout(lidIdleTimer);
         closeWarning();
         batteryMonitor?.stop();
         claudeWatcher?.stop();

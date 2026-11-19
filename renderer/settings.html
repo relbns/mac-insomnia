@@ -282,6 +282,29 @@
             </label>
         </section>
 
+        <h2>Claude Code</h2>
+        <section class="group">
+            <label class="row">
+                <span class="label">
+                    <span>Keep awake while Claude works</span>
+                    <span class="caption">Smart Mode. Install the Claude Code hooks from the menu</span>
+                </span>
+                <input class="switch" type="checkbox" data-setting="smartMode">
+            </label>
+            <div class="row stacked">
+                <div class="label">
+                    <span>End Lid Closed Mode when Claude is idle</span>
+                    <span class="caption">Let the Mac sleep once Claude has been idle this long</span>
+                </div>
+                <div class="segmented" data-setting="lidEndsWhenClaudeIdle">
+                    <button type="button" data-value="null">Off</button>
+                    <button type="button" data-value="5">5 min</button>
+                    <button type="button" data-value="10">10 min</button>
+                    <button type="button" data-value="30">30 min</button>
+                </div>
+            </div>
+        </section>
+
         <h2>Battery</h2>
         <section class="group">
             <div class="row stacked">
