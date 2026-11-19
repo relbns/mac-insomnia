@@ -193,6 +193,28 @@
             font-weight: 500;
         }
 
+        .buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .push {
+            flex: 1;
+            border: 0;
+            border-radius: 6px;
+            padding: 5px 10px;
+            background: var(--track);
+            color: var(--text);
+            font: inherit;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .push:active {
+            background: var(--segment);
+            box-shadow: var(--segment-shadow);
+        }
+
         .tiles {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -347,6 +369,17 @@
                 <span class="label">Sound effects</span>
                 <input class="switch" type="checkbox" data-setting="soundEnabled">
             </label>
+            <div class="row stacked">
+                <div class="label">
+                    <span>Notifications</span>
+                    <span class="caption">Timer reminders and battery alerts are notifications. If the test does not appear, macOS is blocking them: open Notification Settings, choose Mac Insomnia in the list and turn on Allow Notifications</span>
+                </div>
+                <div class="buttons">
+                    <button type="button" class="push" id="testNotification">Send Test Notification</button>
+                    <button type="button" class="push" id="notificationSettings">Open Notification Settings</button>
+                </div>
+                <span class="caption" id="testResult" hidden></span>
+            </div>
         </section>
 
         <h2>Menu Bar Icon</h2>
@@ -399,6 +432,16 @@
                 button.addEventListener('click', () => update(group.dataset.setting, decode(button.dataset.value)));
             }
         }
+
+        document.getElementById('testNotification').addEventListener('click', async () => {
+            const sent = await window.insomnia.sendTestNotification();
+            const result = document.getElementById('testResult');
+            result.textContent = sent
+                ? 'Sent. Did not see it? Open Notification Settings and allow Mac Insomnia.'
+                : 'Notifications are not available on this Mac.';
+            result.hidden = false;
+        });
+        document.getElementById('notificationSettings').addEventListener('click', () => window.insomnia.openNotificationSettings());
 
         window.insomnia.onSettingsChanged(render);
         window.insomnia.getSettings().then(render);
