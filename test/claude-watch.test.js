@@ -198,3 +198,30 @@ test('installing hooks keeps the sessions that scan mode was already holding', a
     watcher.start('hooks');
     assert.equal(watcher.count, 3);
 });
+
+test('suspending releases the holds, and resuming holds again only the sessions still busy', async (t) => {
+    const { watcher, holds } = fakeWatcher(t);
+    watcher.start('hooks');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=600');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=800');
+    watcher.suspend();
+    assert.equal(watcher.count, 0);
+    await watcher.handleUrl('mac-insomnia://claude?state=idle&pid=800');
+    await watcher.handleUrl('mac-insomnia://claude?state=busy&pid=900');
+    assert.equal(watcher.count, 0);
+    watcher.resume();
+    assert.deepEqual([...watcher.holds.keys()].sort(), [600, 900]);
+    assert.equal(holds.filter((h) => !h.child.killed).length, 2);
+});
+
+test('a suspended scan holds nothing until resumed', async (t) => {
+    const { watcher } = fakeWatcher(t);
+    watcher.start('scan');
+    await watcher.scan();
+    watcher.suspend();
+    await watcher.scan();
+    assert.equal(watcher.count, 0);
+    watcher.resume();
+    await watcher.queue;
+    assert.equal(watcher.count, 3);
+});

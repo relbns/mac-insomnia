@@ -98,8 +98,8 @@ dist/
 A notification says when it does.
 
 - The level is checked with `pmset -g pslog`, a stream of the system's power-source notifications, so Mac Insomnia does not poll. That stream runs only while the guard is on, the Mac is on battery and something is keeping it awake.
-- **Turn Off Lid Closed Mode on Battery** (on by default) turns Lid Closed Mode off as soon as the Mac switches to battery, because a closed Mac running on battery is the case where it can overheat in a bag. With it off, you get a warning instead.
-- Starting a session below the guard level stops it again right away, with the same notification. Lower the level or set it to Off to override.
+- **Turn Off Lid Closed Mode on Battery** (on by default) keeps Lid Closed Mode off whenever the Mac runs on battery, because a closed Mac running on battery is the case where it can overheat in a bag. It turns the mode off when the Mac switches to battery, even while the password prompt is open, and refuses to turn it on while on battery. With it off, you get a warning instead.
+- Starting a session below the guard level stops it again right away, with the same notification. Lower the level or set it to Off to override. That also resumes a paused Smart Mode.
 
 ---
 
