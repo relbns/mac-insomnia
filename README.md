@@ -54,6 +54,7 @@ Both windows follow the system's light or dark appearance and accent color. In t
    ```
 
 4. Launch it from Spotlight. It lives in the menu bar: left-click for the menu, right-click to start or stop.
+5. When macOS asks whether Mac Insomnia may send notifications, choose **Allow**: timer reminders and battery alerts are notifications. If you missed that prompt, open **Settings → General → Notifications** in Mac Insomnia, press **Send Test Notification**, and if nothing appears, press **Open Notification Settings**, choose **Mac Insomnia** in the list and turn on **Allow Notifications**.
 
 ---
 

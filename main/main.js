@@ -148,6 +148,21 @@ ipcMain.handle('set-setting', (_event, key, value) => {
 ipcMain.handle('get-settings', () => settingsForRenderer());
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+let testNotification = null;
+
+ipcMain.handle('send-test-notification', () => {
+    if (!Notification.isSupported()) return false;
+    testNotification?.close();
+    testNotification = new Notification({
+        title: 'Notifications from Mac Insomnia work',
+        body: 'Timer reminders and battery alerts will look like this.'
+    });
+    testNotification.show();
+    return true;
+});
+
+ipcMain.handle('open-notification-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'));
+
 function secureWebPreferences () {
     return { preload: PRELOAD_PATH, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: true };
 }
