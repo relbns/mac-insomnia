@@ -25,7 +25,8 @@
 - 🤖 **Smart Mode for Claude Code** – Stay awake only while Claude is working
 - ⚡ **Automation** – `mac-insomnia://start?minutes=90` links for Shortcuts, Raycast and scripts
 - 💤 **Powered by `caffeinate`** – Lightweight native macOS approach
-- 🔒 **Secure and Signed Build** – Uses hardened runtime and entitlements
+- 🪶 **Light at idle** – One process, about 30 MB of memory, no polling and no idle wakeups
+- 🔒 **Sandboxed windows** – Settings and About run with context isolation and the renderer sandbox
 
 ---
 
@@ -33,7 +34,13 @@
 
 1. Download the latest `.dmg` from the [Releases page](https://github.com/relbns/mac-insomnia/releases).
 2. Drag **Mac Insomnia.app** into your **Applications** folder.
-3. Launch from Spotlight or the menu bar icon.
+3. The app is not signed with an Apple Developer ID or notarized, so macOS blocks it the first time when it was downloaded in a browser (it may say the app "is damaged"). Allow it once with:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Mac Insomnia.app"
+   ```
+
+4. Launch it from Spotlight. It lives in the menu bar: left-click for the menu, right-click to start or stop.
 
 ---
 
@@ -44,6 +51,7 @@ git clone https://github.com/relbns/mac-insomnia.git
 cd mac-insomnia
 npm install
 npm start
+npm test
 ```
 
 ---
@@ -60,7 +68,11 @@ The generated `.dmg` will appear in:
 dist/
 ```
 
-> 💡 To automatically publish a new release to GitHub when tagging a version, use the GitHub Action defined in `.github/workflows/release.yml`.
+### Releasing
+
+1. Bump the version: `npm version 1.0.8 --no-git-tag-version`, then merge it to `master` through a PR.
+2. Tag the merge commit and push the tag: `git tag -a v1.0.8 -m "1.0.8" && git push origin v1.0.8`.
+3. `.github/workflows/release.yml` runs the tests, builds the `.dmg` and publishes the GitHub release with the workflow's own `GITHUB_TOKEN`. No secret is needed.
 
 ---
 
@@ -69,7 +81,7 @@ dist/
 `caffeinate` cannot stop the sleep that happens when you close a MacBook's lid. **Keep Awake with Lid Closed** in the menu runs `pmset -a disablesleep 1` through the standard macOS administrator prompt.
 
 - **Use it only on power, and never put the Mac in a bag or a closed space while it is on.** The Mac will not sleep and can overheat. The app warns you before every activation and notifies you if the Mac switches to battery.
-- Normal sleep (`disablesleep 0`) is restored when you turn the mode off, when the timer ends and when you quit. No second password is needed: a small root watchdog started with the mode waits on a helper process that exits with the app, so a crash or a force quit restores sleep too.
+- Normal sleep (`disablesleep 0`) is restored when you turn the mode off, when the timer ends and when you quit, with no second password. The same administrator prompt starts a one-shot root launchd job that waits on a helper process tied to the app. When the helper ends, for any reason including a crash or a force quit, the job restores sleep and removes itself.
 - On launch the app checks `pmset -g`. If sleep is still disabled after an unclean exit (for example a reboot while the mode was on), it asks for the password to restore it. If something else disabled sleep, the menu says so and offers **Restore Normal Sleep…**.
 - The mode always starts off when the app launches.
 
@@ -87,23 +99,11 @@ Mac Insomnia handles `mac-insomnia://` links, so anything that can open a URL ca
 | `mac-insomnia://stop` | Stops |
 | `mac-insomnia://toggle` | Starts or stops |
 
-- **Terminal or scripts:** `open -g "mac-insomnia://start?minutes=90"` (`-g` keeps focus where it is). The link launches Mac Insomnia if it is not running.
+- **Terminal or scripts:** `open -g "mac-insomnia://start?minutes=90"` (`-g` keeps focus where it is). Mac Insomnia has to be running: a link does not reliably launch it yet.
 - **Shortcuts:** add an **Open URLs** action with one of the links.
 - **Raycast:** create a Quicklink with one of the links.
 
 Lid Closed Mode cannot be turned on from a link, because it needs the warning and the administrator prompt.
-
----
-
-## 📊 Resource use
-
-Measure any running instance with:
-
-```bash
-npm run measure -- --pid <main process pid> --minutes 30 --out result.json
-```
-
-It samples RSS and CPU time of the app and every child process, and reports the RSS growth rate and idle wakeups.
 
 ---
 
@@ -128,6 +128,18 @@ It samples RSS and CPU time of the app and every child process, and reports the 
 
 ---
 
+## 📊 Resource use
+
+Measure any running instance with:
+
+```bash
+npm run measure -- --pid <main process pid> --minutes 30 --out result.json
+```
+
+It samples RSS and CPU time of the app and every child process, and reports the RSS growth rate and idle wakeups.
+
+---
+
 ## 📦 Tech Stack
 
 - [Electron](https://www.electronjs.org/)
@@ -138,8 +150,7 @@ It samples RSS and CPU time of the app and every child process, and reports the 
 
 ## 🪪 License
 
-This project is licensed under the **MIT License**.  
-Feel free to use, modify, and share.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
