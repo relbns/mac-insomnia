@@ -26,7 +26,7 @@
 - ⚡ **Automation** – `mac-insomnia://start?minutes=90` links for Shortcuts, Raycast and scripts
 - 💤 **Powered by `caffeinate`** – Lightweight native macOS approach
 - 🪶 **Light at idle** – One process, about 30 MB of memory, no polling and no idle wakeups
-- 🔒 **Sandboxed windows** – Settings and About run with context isolation and the renderer sandbox
+- 🔒 **Hardened** – Settings and About run with context isolation and the renderer sandbox, and the Electron fuses that let the app run as plain Node (`ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS`, `--inspect`) are off
 
 ---
 
@@ -34,7 +34,7 @@
 
 1. Download the latest `.dmg` from the [Releases page](https://github.com/relbns/mac-insomnia/releases).
 2. Drag **Mac Insomnia.app** into your **Applications** folder.
-3. The app is not signed with an Apple Developer ID or notarized, so macOS blocks it the first time when it was downloaded in a browser (it may say the app "is damaged"). Allow it once with:
+3. The app is ad-hoc signed but not signed with an Apple Developer ID or notarized, so macOS blocks it the first time when it was downloaded in a browser. Allow it once in **System Settings → Privacy & Security → Open Anyway**, or run:
 
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Mac Insomnia.app"
@@ -99,7 +99,7 @@ Mac Insomnia handles `mac-insomnia://` links, so anything that can open a URL ca
 | `mac-insomnia://stop` | Stops |
 | `mac-insomnia://toggle` | Starts or stops |
 
-- **Terminal or scripts:** `open -g "mac-insomnia://start?minutes=90"` (`-g` keeps focus where it is). Mac Insomnia has to be running: a link does not reliably launch it yet.
+- **Terminal or scripts:** `open -g "mac-insomnia://start?minutes=90"` (`-g` keeps focus where it is). The link launches Mac Insomnia if it is not running.
 - **Shortcuts:** add an **Open URLs** action with one of the links.
 - **Raycast:** create a Quicklink with one of the links.
 
