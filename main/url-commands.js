@@ -11,6 +11,10 @@ function parseCommandUrl (url) {
     if (parsed.protocol !== URL_PROTOCOL) return null;
     const action = parsed.hostname;
     if (action === 'stop' || action === 'toggle') return { action };
+    if (action === 'until') {
+        const pid = parsed.searchParams.get('pid');
+        return /^\d+$/.test(pid || '') && Number(pid) > 1 ? { action, pid: Number(pid) } : null;
+    }
     if (action !== 'start') return null;
     const minutes = parsed.searchParams.get('minutes');
     if (minutes === null) return { action };

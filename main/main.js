@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeArgs } = require('./keep-awake-args');
+const { ProcessWatcher } = require('./process-watch');
 const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer, idleDelayMs } = require('./claude-lid');
 const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
@@ -52,6 +53,9 @@ let lidIdleArmedAt = null;
 let lidSawClaudeWork = false;
 let lidIdleFired = false;
 let lidStartedPlayback = false;
+let processWatcher = null;
+let processCandidates = [];
+let processRefresh = null;
 let warnedForEndTime = null;
 let soundProcess = null;
 let cachedMenu = null;
@@ -424,7 +428,8 @@ async function changeClaudeHooks (install) {
     refreshTray();
 }
 
-function runUrlCommand ({ action, durationMs }) {
+function runUrlCommand ({ action, durationMs, pid }) {
+    if (action === 'until') return processWatcher.watchPid(pid);
     if (action === 'stop') return stopPlayback();
     if (action === 'toggle') return togglePlayback();
     if (durationMs !== undefined) setDuration(durationMs);
@@ -446,12 +451,14 @@ function createContextMenu () {
     return Menu.buildFromTemplate([
         { label: runLabel, click: () => togglePlayback() },
         ...(isPlaying && endTime ? [{ label: extendLabel(), click: () => extendTimer() }] : []),
+        ...watchedMenuItems(),
         { type: 'separator' },
         {
             label: 'Set Duration',
             submenu: DURATIONS.map(({ label, ms }) => ({ label, type: 'radio', checked: duration === ms, click: () => setDuration(ms) }))
         },
         { label: 'Let the Display Sleep', type: 'checkbox', checked: settings.allowDisplaySleep, click: () => toggleAllowDisplaySleep() },
+        { label: 'Keep Awake Until a Process Ends', submenu: processMenuItems() },
         { label: 'Battery Guard', submenu: batteryMenuItems() },
         { type: 'separator' },
         ...lidMenuItems(),
@@ -486,6 +493,7 @@ function showMenu () {
 function onTrayHover () {
     updateTooltip();
     refreshSleepState();
+    refreshProcessCandidates();
 }
 
 function updateTooltip () {
@@ -493,12 +501,13 @@ function updateTooltip () {
     const lid = lidSleep?.active ? ' - lid closed mode' : '';
     const warning = lidSleep && !lidSleep.active && lidSleep.systemSleepDisabled !== false ? ' - sleep disabled system-wide' : '';
     const smart = settings.smartMode && claudeWatcher ? ` - ${smartStatusLabel()}` : '';
-    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}${smart}` : `Insomnia - Stopped${warning}${smart}`);
+    const waiting = processWatcher?.count ? ` - waiting for ${processWatcher.list().map((p) => p.name).join(', ')}` : '';
+    tray.setToolTip(isPlaying ? `Insomnia - ${formatTimeRemaining()}${lid}${warning}${smart}${waiting}` : `Insomnia - Stopped${warning}${smart}${waiting}`);
 }
 
 function refreshTray () {
     if (!tray) return;
-    tray.setImage(trayIcon(isPlaying || Boolean(claudeWatcher?.count)));
+    tray.setImage(trayIcon(isKeepingAwake()));
     updateTooltip();
     invalidateMenu();
     updateBatteryMonitoring();
@@ -506,7 +515,29 @@ function refreshTray () {
 }
 
 function isKeepingAwake () {
-    return isPlaying || lidSleep.active || lidSleep.pending || Boolean(claudeWatcher?.count);
+    return isPlaying || lidSleep.active || lidSleep.pending || Boolean(claudeWatcher?.count) || Boolean(processWatcher?.count);
+}
+
+function refreshProcessCandidates () {
+    if (!processWatcher || processRefresh) return;
+    processRefresh = processWatcher.candidates()
+        .then((list) => {
+            processCandidates = list;
+            invalidateMenu();
+        })
+        .finally(() => { processRefresh = null; });
+}
+
+function processMenuItems () {
+    const items = processCandidates.map(({ pid, name, cpu }) => ({
+        label: `${name} (${Math.round(cpu)}% CPU)`,
+        click: () => processWatcher.watch(pid, name)
+    }));
+    return items.length ? items : [{ label: 'No busy apps or tools right now', enabled: false }];
+}
+
+function watchedMenuItems () {
+    return (processWatcher?.list() || []).map(({ pid, name }) => ({ label: `Stop Waiting for ${name}`, click: () => processWatcher.unwatch(pid) }));
 }
 
 function guardPercent () {
@@ -541,6 +572,7 @@ async function evaluateBatteryGuard () {
         if (lidSleep.active) lidRestored = Boolean((await disableLidMode())?.restored);
         stopPlayback();
         if (settings.smartMode) claudeWatcher.suspend();
+        processWatcher.unwatchAll();
         const smart = settings.smartMode ? ' Smart Mode resumes when power is connected.' : '';
         notify(`Battery at ${percent}%`, lidRestored
             ? `Insomnia stopped keeping the Mac awake (Battery Guard: ${guardPercent()}%).${smart}`
@@ -905,6 +937,11 @@ if (!app.requestSingleInstanceLock()) {
             onError: (error) => console.error('Smart Mode:', error)
         });
         claudeWatcher.sweepOrphans();
+        processWatcher = new ProcessWatcher({
+            keepAwakeFlags: () => [keepAwakeArgs({ allowDisplaySleep: settings.allowDisplaySleep, ownerPid: process.pid })[0]],
+            onChange: () => refreshTray(),
+            onFinished: ({ name }) => notify(`${name} finished`, 'Insomnia stopped waiting for it, so the Mac can sleep again.')
+        });
         applySmartMode();
         pendingUrls.splice(0).forEach(handleUrl);
         powerMonitor.on('on-battery', () => onPowerSourceChange(true));
@@ -938,6 +975,7 @@ if (!app.requestSingleInstanceLock()) {
         stopCaffeinate();
         clearTimeout(lidIdleTimer);
         closeWarning();
+        processWatcher?.unwatchAll();
         batteryMonitor?.stop();
         claudeWatcher?.stop();
         if (soundProcess) soundProcess.kill();
