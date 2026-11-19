@@ -28,6 +28,7 @@ Both windows follow the system's light or dark appearance and accent color. In t
 
 - 🕹️ **Menu Bar Control** – Toggle sleep prevention instantly
 - ⏱️ **Set Duration** – Choose 30 min, 1 hour, 2 hours, or infinite
+- ⏰ **Timer Reminder** – A notification five minutes before the timer ends, with a button (and a menu item) to add 30 minutes
 - 🔋 **Battery Guard** – Stops keeping the Mac awake when the battery runs low (20% by default), and turns off Lid Closed Mode on battery
 - 🖥️ **Let the Display Sleep** – Keep the Mac running but let the screen turn off, to save power during downloads, builds or long Claude runs
 - 🔊 **Sound Effects** – Optional feedback for start/stop

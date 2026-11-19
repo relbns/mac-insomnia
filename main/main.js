@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeArgs } = require('./keep-awake-args');
+const { EXTEND_MS, warningDelayMs, extendedEndTime, minutesLeft } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
 const { parseCommandUrl } = require('./url-commands');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
@@ -28,7 +29,8 @@ let settings = {
     smartMode: false,
     allowDisplaySleep: false,
     batteryGuardPercent: DEFAULT_GUARD_PERCENT,
-    lidOffOnBattery: true
+    lidOffOnBattery: true,
+    timerWarning: true
 };
 
 let tray = null;
@@ -39,6 +41,8 @@ let caffeinateProcess = null;
 let duration = null;
 let endTime = null;
 let endTimer = null;
+let warnTimer = null;
+let warningNotification = null;
 let soundProcess = null;
 let cachedMenu = null;
 let lidSleep = null;
@@ -117,6 +121,11 @@ const SETTING_APPLIERS = {
         saveSettings();
     },
     allowDisplaySleep: (value) => setAllowDisplaySleep(Boolean(value)),
+    timerWarning: (value) => {
+        settings.timerWarning = Boolean(value);
+        saveSettings();
+        scheduleTimers();
+    },
     batteryGuardPercent: (value) => setBatteryGuard(normalizeGuardPercent(value)),
     lidOffOnBattery: (value) => setLidOffOnBattery(Boolean(value))
 };
@@ -333,6 +342,7 @@ function createContextMenu () {
     const runLabel = isPlaying ? `Stop Insomnia (${formatTimeRemaining()})` : `Start (${formatDurationLabel(duration)}) Insomnia`;
     return Menu.buildFromTemplate([
         { label: runLabel, click: () => togglePlayback() },
+        ...(isPlaying && endTime ? [{ label: 'Add 30 Minutes', click: () => extendTimer(EXTEND_MS) }] : []),
         { type: 'separator' },
         {
             label: 'Set Duration',
@@ -524,11 +534,48 @@ function stopCaffeinate () {
     if (child) child.kill('SIGTERM');
 }
 
-function armTimer () {
+function clearTimers () {
     clearTimeout(endTimer);
+    clearTimeout(warnTimer);
     endTimer = null;
+    warnTimer = null;
+    warningNotification?.close();
+    warningNotification = null;
+}
+
+function scheduleTimers () {
+    clearTimers();
+    if (!isPlaying || !endTime) return;
+    endTimer = setTimeout(onTimerEnd, Math.max(0, endTime - Date.now()));
+    const delay = settings.timerWarning ? warningDelayMs({ endTime, now: Date.now() }) : null;
+    if (delay !== null) warnTimer = setTimeout(showTimerWarning, delay);
+}
+
+function armTimer () {
     endTime = duration ? Date.now() + duration : null;
-    if (endTime) endTimer = setTimeout(onTimerEnd, duration);
+    scheduleTimers();
+}
+
+function showTimerWarning () {
+    warnTimer = null;
+    if (!isPlaying || !endTime || !Notification.isSupported()) return;
+    const minutes = minutesLeft({ endTime, now: Date.now() });
+    const notification = new Notification({
+        title: `Insomnia ends in ${minutes} minute${minutes === 1 ? '' : 's'}`,
+        body: 'Click to keep the Mac awake 30 more minutes.',
+        actions: [{ type: 'button', text: 'Add 30 Minutes' }]
+    });
+    notification.on('click', () => extendTimer(EXTEND_MS));
+    notification.on('action', () => extendTimer(EXTEND_MS));
+    notification.show();
+    warningNotification = notification;
+}
+
+function extendTimer (ms) {
+    if (!isPlaying || !endTime) return;
+    endTime = extendedEndTime({ endTime, now: Date.now(), addMs: ms });
+    scheduleTimers();
+    refreshTray();
 }
 
 function onTimerEnd () {
@@ -556,8 +603,7 @@ function stopPlayback () {
     isPlaying = false;
     playSound(false);
     stopCaffeinate();
-    clearTimeout(endTimer);
-    endTimer = null;
+    clearTimers();
     endTime = null;
     if (lidSleep.active) disableLidMode();
     else if (lidSleep.pending) lidSleep.killToken();
@@ -747,7 +793,10 @@ if (!app.requestSingleInstanceLock()) {
         powerMonitor.on('on-battery', () => onPowerSourceChange(true));
         powerMonitor.on('on-ac', () => onPowerSourceChange(false));
         powerMonitor.on('resume', () => {
-            if (endTimer) onTimerEnd();
+            if (isPlaying && endTime) {
+                if (Date.now() >= endTime) stopPlayback();
+                else scheduleTimers();
+            }
             const battery = powerMonitor.isOnBatteryPower();
             if (battery !== onBattery) onPowerSourceChange(battery);
         });
