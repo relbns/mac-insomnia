@@ -17,6 +17,7 @@
 
 - 🕹️ **Menu Bar Control** – Toggle sleep prevention instantly
 - ⏱️ **Set Duration** – Choose 30 min, 1 hour, 2 hours, or infinite
+- 🖥️ **Let the Display Sleep** – Keep the Mac running but let the screen turn off, to save power during downloads, builds or long Claude runs
 - 🔊 **Sound Effects** – Optional feedback for start/stop
 - 🧠 **Start at Login** – Launch automatically with macOS
 - 🧩 **Icon Sets** – Switch between two icon styles
