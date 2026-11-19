@@ -189,6 +189,14 @@ function secureWebPreferences () {
 
 const WINDOW_SCREEN_MARGIN = 60;
 
+function fitWindowHeight (win, height) {
+    if (!win || win.isDestroyed() || !Number.isFinite(height) || height <= 0) return;
+    const maxHeight = screen.getDisplayMatching(win.getBounds()).workAreaSize.height - WINDOW_SCREEN_MARGIN;
+    win.setContentSize(win.getContentSize()[0], Math.min(Math.ceil(height), maxHeight), win.isVisible());
+}
+
+ipcMain.on('fit-window', (event, height) => fitWindowHeight(BrowserWindow.fromWebContents(event.sender), height));
+
 function openWindow (existing, options, file) {
     if (existing) {
         existing.focus();
@@ -209,9 +217,8 @@ function openWindow (existing, options, file) {
     });
     win.loadFile(path.join(RENDERER_PATH, file));
     win.once('ready-to-show', async () => {
-        const height = await win.webContents.executeJavaScript('document.documentElement.scrollHeight').catch(() => null);
-        const maxHeight = screen.getDisplayMatching(win.getBounds()).workAreaSize.height - WINDOW_SCREEN_MARGIN;
-        if (Number.isInteger(height) && height > 0) win.setContentSize(win.getContentSize()[0], Math.min(height, maxHeight));
+        const height = await win.webContents.executeJavaScript('Math.ceil(document.body.getBoundingClientRect().height)').catch(() => null);
+        fitWindowHeight(win, height);
         win.center();
         win.show();
     });

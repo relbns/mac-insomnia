@@ -15,12 +15,19 @@
 
 ## 📸 Screenshots
 
-| Settings | About |
+| General | Keep Awake |
 |---|---|
-| <img src="./docs/screenshots/settings-light.png" alt="Settings in light mode" width="320"> | <img src="./docs/screenshots/about-light.png" alt="About in light mode" width="240"> |
-| <img src="./docs/screenshots/settings-dark.png" alt="Settings in dark mode" width="320"> | <img src="./docs/screenshots/about-dark.png" alt="About in dark mode" width="240"> |
+| <img src="./docs/screenshots/settings-general-light.png" alt="Settings, General tab, light mode" width="320"> | <img src="./docs/screenshots/settings-awake-light.png" alt="Settings, Keep Awake tab, light mode" width="320"> |
 
-Both windows follow the system's light or dark appearance and accent color. In the app, the window background is translucent.
+| Claude Code | Battery |
+|---|---|
+| <img src="./docs/screenshots/settings-claude-dark.png" alt="Settings, Claude Code tab, dark mode" width="320"> | <img src="./docs/screenshots/settings-battery-dark.png" alt="Settings, Battery tab, dark mode" width="320"> |
+
+| About, light | About, dark |
+|---|---|
+| <img src="./docs/screenshots/about-light.png" alt="About in light mode" width="240"> | <img src="./docs/screenshots/about-dark.png" alt="About in dark mode" width="240"> |
+
+Settings is split into tabs and the window resizes to each one. Both windows follow the system's light or dark appearance and accent color, and in the app the window background is translucent.
 
 ---
 
