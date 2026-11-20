@@ -325,6 +325,7 @@
                     <span class="label">
                         <span>Check for updates automatically</span>
                         <span class="caption">Once a day, from GitHub Releases. Nothing installs without your OK</span>
+                        <span class="caption" id="updateCaption" hidden>Not available in development builds</span>
                     </span>
                     <input class="switch" type="checkbox" data-setting="autoUpdate">
                 </label>
@@ -458,6 +459,8 @@
             const login = document.querySelector('[data-setting="startAtLogin"]');
             login.disabled = settings.isDevelopment;
             document.getElementById('loginCaption').hidden = !settings.isDevelopment;
+            document.querySelector('[data-setting="autoUpdate"]').disabled = settings.isDevelopment;
+            document.getElementById('updateCaption').hidden = !settings.isDevelopment;
         }
 
         function update (key, value) {

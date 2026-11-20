@@ -47,7 +47,7 @@ Settings is split into tabs and the window resizes to each one. Both windows fol
 - ⚡ **Automation** – `mac-insomnia://start?minutes=90` links for Shortcuts, Raycast and scripts
 - 💤 **Powered by `caffeinate`** – Lightweight native macOS approach
 - 🪶 **Light at idle** – One process, about 30 MB of memory, no polling and no idle wakeups
-- 🔄 **Self-updating** – Checks GitHub Releases daily and installs a verified update when you confirm
+- 🔄 **Self-updating** – Checks GitHub Releases daily and installs an integrity-checked update when you confirm
 - 🔒 **Hardened** – Settings and About run with context isolation and the renderer sandbox, and the Electron fuses that let the app run as plain Node (`ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS`, `--inspect`) are off
 
 ---
@@ -72,8 +72,8 @@ Settings is split into tabs and the window resizes to each one. Both windows fol
 Mac Insomnia checks GitHub Releases once a day (Settings → General → **Check for updates automatically**, or **Check for Updates…** in the menu). When a new version is out, a notification offers to install it, and nothing installs until you confirm.
 
 - The update is downloaded from that version's release, and its SHA-512 checksum and size are compared with the release's `latest-mac.yml`.
-- The app inside is checked for the right bundle id and version, and `codesign --verify --deep --strict` must pass.
-- Only then is the app replaced, with the old copy kept until the new one is in place and restored if copying fails. Mac Insomnia then restarts, and a running session continues.
+- The app inside is checked for the right bundle id and version, and `codesign --verify --deep --strict` must pass. The app is ad-hoc signed, so these checks prove the download is intact and complete, not who built it: the trust rests on the GitHub release itself.
+- The new copy is staged next to the app first. The swap is two renames, and the old copy is put back if either fails. Mac Insomnia then restarts, a running session and any process waits continue, and a notification says whether the update went in.
 - If any check fails, nothing is changed. Updates are not offered while Lid Closed Mode is on, because it needs the administrator password to come back.
 
 ---

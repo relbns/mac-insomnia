@@ -4,12 +4,12 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { LidSleepController } = require('./lid-sleep');
 const { keepAwakeFlag, keepAwakeArgs } = require('./keep-awake-args');
-const { Updater, CHECK_INTERVAL_MS } = require('./updater');
+const { Updater, CHECK_INTERVAL_MS, parseInstallOutcome } = require('./updater');
 const { ProcessWatcher } = require('./process-watch');
 const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer, idleDelayMs } = require('./claude-lid');
 const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
-const { parseCommandUrl } = require('./url-commands');
+const { parseCommandUrl, MAX_MINUTES } = require('./url-commands');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
 const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : path.join(__dirname, '..');
@@ -61,6 +61,7 @@ let updateTimer = null;
 let updateNotification = null;
 let updateNotifiedVersion = null;
 let updateInstalling = false;
+let updatePromptOpen = false;
 let processCandidates = [];
 let processCandidatesOk = true;
 let processRefresh = null;
@@ -207,7 +208,8 @@ async function checkForUpdates ({ silent }) {
     const result = await updater.check();
     invalidateMenu();
     if (!result.ok) {
-        if (!silent) notify('Could not check for updates', String(result.error?.message || result.error));
+        console.error('Update check:', errorText(result.error));
+        if (!silent) notify('Could not check for updates', errorText(result.error));
         return;
     }
     if (!result.available) {
@@ -223,41 +225,79 @@ async function checkForUpdates ({ silent }) {
     updateNotification.show();
 }
 
-function relaunchUrlForSession () {
-    if (!isPlaying) return null;
-    if (!endTime) return 'mac-insomnia://start?minutes=infinite';
-    return `mac-insomnia://start?minutes=${Math.min(1440, Math.max(1, Math.ceil((endTime - Date.now()) / 60000)))}`;
+function errorText (error) {
+    return String(error?.message || error);
+}
+
+function relaunchUrlsForSession () {
+    const urls = (processWatcher?.list() ?? []).map(({ pid }) => `mac-insomnia://until?pid=${pid}`);
+    if (!isPlaying) return urls;
+    if (!endTime) return ['mac-insomnia://start?minutes=infinite', ...urls];
+    return [`mac-insomnia://start?minutes=${Math.min(MAX_MINUTES, Math.max(1, Math.ceil((endTime - Date.now()) / 60000)))}`, ...urls];
+}
+
+function lidModeBlocksUpdate () {
+    if (!lidSleep.active && !lidSleep.pending) return false;
+    notify('Turn off Lid Closed Mode first', 'The update restarts Mac Insomnia, and Lid Closed Mode cannot come back on by itself.');
+    return true;
 }
 
 async function promptInstallUpdate () {
     const update = updater?.available;
-    if (!update || updateInstalling) return;
-    if (lidSleep.active || lidSleep.pending) {
-        notify('Turn off Lid Closed Mode first', 'The update restarts Mac Insomnia, and Lid Closed Mode cannot come back on by itself.');
-        return;
+    if (!update || updateInstalling || updatePromptOpen || lidModeBlocksUpdate()) return;
+    updatePromptOpen = true;
+    let response;
+    try {
+        app.focus({ steal: true });
+        ({ response } = await dialog.showMessageBox({
+            type: 'info',
+            message: `Install Mac Insomnia ${update.version}?`,
+            detail: `You have ${app.getVersion()}. Mac Insomnia downloads the update from GitHub, checks it, and restarts. A running session and any process waits continue after the restart.`,
+            buttons: ['Install and Restart', 'Release Notes', 'Later'],
+            defaultId: 0,
+            cancelId: 2
+        }));
+    } finally {
+        updatePromptOpen = false;
     }
-    app.focus({ steal: true });
-    const { response } = await dialog.showMessageBox({
-        type: 'info',
-        message: `Install Mac Insomnia ${update.version}?`,
-        detail: `You have ${app.getVersion()}. Mac Insomnia downloads the update from GitHub, checks it, and restarts. A running session continues after the restart.`,
-        buttons: ['Install and Restart', 'Release Notes', 'Later'],
-        defaultId: 0,
-        cancelId: 2
-    });
     if (response === 1) shell.openExternal(`https://github.com/relbns/mac-insomnia/releases/tag/v${update.version}`);
-    if (response !== 0) return;
+    if (response !== 0 || updateInstalling || lidModeBlocksUpdate()) return;
     updateInstalling = true;
     invalidateMenu();
-    const result = await updater.prepare();
-    if (!result.ok) {
-        updateInstalling = false;
-        invalidateMenu();
-        notify('The update was not installed', `${String(result.error?.message || result.error)}. Nothing was changed.`);
+    let plan = null;
+    try {
+        const result = await updater.prepare(update.version);
+        if (!result.ok) {
+            notify('The update was not installed', `${errorText(result.error)}. Nothing was changed.`);
+            return;
+        }
+        plan = result.plan;
+        if (lidModeBlocksUpdate()) return;
+        updater.install(plan, { relaunchUrls: relaunchUrlsForSession() });
+        plan = null;
+        app.quit();
+    } catch (error) {
+        notify('The update was not installed', `${errorText(error)}. Nothing was changed.`);
+    } finally {
+        if (plan) await updater.discard(plan);
+        if (!quitting) {
+            updateInstalling = false;
+            invalidateMenu();
+        }
+    }
+}
+
+function reportInstallOutcome (statusPath) {
+    let text;
+    try {
+        text = fs.readFileSync(statusPath, 'utf8');
+        fs.rmSync(statusPath, { force: true });
+    } catch {
         return;
     }
-    updater.install(result.plan, { relaunchUrl: relaunchUrlForSession() });
-    app.quit();
+    const result = parseInstallOutcome(text);
+    if (result?.outcome === 'installed' && result.version === app.getVersion()) notify(`Mac Insomnia ${result.version} is installed`, 'The update finished and Mac Insomnia restarted.');
+    else if (result) notify(`Mac Insomnia ${result.version} was not installed`, `Mac Insomnia kept version ${app.getVersion()}. Download the update from the release page if this happens again.`);
 }
 
 let testNotification = null;
@@ -376,7 +416,7 @@ function lidMenuItems () {
         label: lidSleep.pending ? 'Keep Awake with Lid Closed (waiting for password)' : 'Keep Awake with Lid Closed',
         type: 'checkbox',
         checked: lidSleep.active || lidSleep.pending,
-        enabled: !lidBusy,
+        enabled: !lidBusy && !updateInstalling,
         click: () => toggleLidMode()
     }];
     if (lidSleep.active) {
@@ -1052,7 +1092,9 @@ if (!app.requestSingleInstanceLock()) {
         });
         processWatcher.sweepOrphans();
         if (app.isPackaged) {
-            updater = new Updater({ currentVersion: app.getVersion(), execPath: process.execPath });
+            const statusPath = path.join(app.getPath('userData'), 'update-status.txt');
+            updater = new Updater({ currentVersion: app.getVersion(), execPath: process.execPath, statusPath });
+            reportInstallOutcome(statusPath);
             scheduleUpdateCheck();
         }
         applySmartMode();
