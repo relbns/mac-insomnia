@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+    <title>Welcome to Mac Insomnia</title>
+    <style>
+        :root {
+            --accent: #007aff;
+            --text: rgba(0, 0, 0, 0.85);
+            --secondary: rgba(0, 0, 0, 0.55);
+            --tertiary: rgba(0, 0, 0, 0.35);
+            --sidebar: rgba(255, 255, 255, 0.28);
+            --group: rgba(255, 255, 255, 0.62);
+            --separator: rgba(0, 0, 0, 0.08);
+            --track: rgba(0, 0, 0, 0.07);
+            --menu: rgba(246, 246, 246, 0.94);
+            --menu-text: rgba(0, 0, 0, 0.85);
+            --menu-disabled: rgba(0, 0, 0, 0.3);
+            --menubar: rgba(255, 255, 255, 0.55);
+            --code: rgba(0, 0, 0, 0.05);
+            --warn: #b25000;
+            --warn-bg: rgba(255, 149, 0, 0.12);
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+            --icon-filter: brightness(0);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --text: rgba(255, 255, 255, 0.88);
+                --secondary: rgba(255, 255, 255, 0.55);
+                --tertiary: rgba(255, 255, 255, 0.35);
+                --sidebar: rgba(0, 0, 0, 0.12);
+                --group: rgba(255, 255, 255, 0.055);
+                --separator: rgba(255, 255, 255, 0.09);
+                --track: rgba(255, 255, 255, 0.1);
+                --menu: rgba(44, 44, 46, 0.96);
+                --menu-text: rgba(255, 255, 255, 0.88);
+                --menu-disabled: rgba(255, 255, 255, 0.3);
+                --menubar: rgba(255, 255, 255, 0.08);
+                --code: rgba(255, 255, 255, 0.07);
+                --warn: #ffb340;
+                --warn-bg: rgba(255, 159, 10, 0.14);
+                --shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+                --icon-filter: brightness(0) invert(1);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: transparent;
+            color: var(--text);
+            font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            cursor: default;
+        }
+
+        body {
+            display: grid;
+            grid-template-columns: 196px 1fr;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        nav {
+            -webkit-app-region: drag;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            padding: 46px 10px 14px;
+            background: var(--sidebar);
+            border-right: 0.5px solid var(--separator);
+        }
+
+        nav button {
+            -webkit-app-region: no-drag;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 5px 9px;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            text-align: left;
+        }
+
+        nav button[aria-current="step"] {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        nav svg {
+            flex: none;
+            width: 17px;
+            height: 17px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.6;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        nav button:not([aria-current="step"]) svg {
+            color: var(--accent);
+        }
+
+        nav .version {
+            margin-top: auto;
+            padding: 0 9px;
+            font-size: 11px;
+            color: var(--tertiary);
+        }
+
+        .content {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .titlebar {
+            -webkit-app-region: drag;
+            height: 28px;
+            flex: none;
+        }
+
+        section {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 34px 20px;
+            -webkit-user-select: text;
+            user-select: text;
+        }
+
+        section[hidden] {
+            display: none;
+        }
+
+        .eyebrow {
+            margin: 0 0 4px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        h3 {
+            margin: 18px 0 6px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        p {
+            margin: 0 0 10px;
+            color: var(--secondary);
+        }
+
+        p strong,
+        li strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        ul,
+        ol {
+            margin: 0 0 10px;
+            padding-left: 18px;
+            color: var(--secondary);
+        }
+
+        li {
+            margin: 3px 0;
+        }
+
+        kbd,
+        .ui {
+            padding: 0 5px;
+            border-radius: 4px;
+            background: var(--track);
+            color: var(--text);
+            font: inherit;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .hero {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding-top: 0;
+        }
+
+        .hero img {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 8px;
+            filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.18));
+        }
+
+        .hero h1 {
+            font-size: 26px;
+        }
+
+        .hero p {
+            max-width: 400px;
+            font-size: 14px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 100%;
+            margin: 14px 0 6px;
+            text-align: left;
+        }
+
+        .card {
+            padding: 12px;
+            border-radius: 10px;
+            background: var(--group);
+            box-shadow: 0 0 0 0.5px var(--separator);
+        }
+
+        .card b {
+            display: block;
+            margin-bottom: 3px;
+            font-size: 12px;
+        }
+
+        .card span {
+            font-size: 11.5px;
+            color: var(--secondary);
+        }
+
+        .card .glyph {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 18px;
+        }
+
+        .figure {
+            display: flex;
+            justify-content: center;
+            margin: 14px 0 12px;
+        }
+
+        .shot {
+            width: 300px;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+        }
+
+        .menubar {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 14px;
+            width: 100%;
+            height: 26px;
+            padding: 0 12px;
+            border-radius: 7px 7px 0 0;
+            background: var(--menubar);
+            box-shadow: 0 0 0 0.5px var(--separator);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .menubar img {
+            width: 16px;
+            height: 16px;
+            filter: var(--icon-filter);
+        }
+
+        .menubar .tray {
+            display: grid;
+            place-items: center;
+            width: 26px;
+            height: 22px;
+            border-radius: 5px;
+            background: var(--track);
+        }
+
+        .menubar .dim {
+            color: var(--tertiary);
+        }
+
+        .stage {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            width: 100%;
+            max-width: 430px;
+        }
+
+        .stage.with-sub {
+            flex-direction: row-reverse;
+            align-items: flex-start;
+            justify-content: flex-start;
+            max-width: 470px;
+        }
+
+        .stage.with-sub .menu {
+            margin-right: 0;
+        }
+
+        .stage .submenu {
+            width: 210px;
+            margin: 80px -4px 0 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        .menu {
+            width: 290px;
+            margin-right: 6px;
+            padding: 5px;
+            border-radius: 8px;
+            background: var(--menu);
+            box-shadow: var(--shadow);
+            color: var(--menu-text);
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .menu .item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            height: 22px;
+            padding: 0 8px 0 4px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .menu .item::before {
+            content: '';
+            width: 12px;
+            text-align: center;
+            font-size: 11px;
+        }
+
+        .menu .item.check::before {
+            content: '✓';
+        }
+
+        .menu .item.sub::after {
+            content: '›';
+            margin-left: auto;
+            font-size: 15px;
+            opacity: 0.6;
+        }
+
+        .menu .item.disabled {
+            color: var(--menu-disabled);
+        }
+
+        .menu .item.hl {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .menu .sep {
+            height: 1px;
+            margin: 5px 8px;
+            background: var(--separator);
+        }
+
+        .callout {
+            display: flex;
+            gap: 10px;
+            margin: 12px 0;
+            padding: 10px 12px;
+            border-radius: 9px;
+            background: var(--group);
+            box-shadow: 0 0 0 0.5px var(--separator);
+            color: var(--secondary);
+        }
+
+        .callout.warn {
+            background: var(--warn-bg);
+            box-shadow: none;
+            color: var(--text);
+        }
+
+        .callout.warn b {
+            color: var(--warn);
+        }
+
+        .callout .glyph {
+            flex: none;
+            font-size: 16px;
+        }
+
+        .steps {
+            counter-reset: step;
+            list-style: none;
+            padding: 0;
+        }
+
+        .steps li {
+            position: relative;
+            margin: 8px 0;
+            padding-left: 30px;
+        }
+
+        .steps li::before {
+            counter-increment: step;
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: grid;
+            place-items: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .action {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            margin: 10px 0;
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: var(--group);
+            box-shadow: 0 0 0 0.5px var(--separator);
+        }
+
+        .action .label {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .action .label small {
+            font-size: 11px;
+            color: var(--secondary);
+        }
+
+        .push {
+            flex: none;
+            border: 0;
+            border-radius: 6px;
+            padding: 5px 12px;
+            background: var(--track);
+            color: var(--text);
+            font: inherit;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .push.primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .push:disabled {
+            opacity: 0.5;
+        }
+
+        .done {
+            color: #34c759;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .switch {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: none;
+            position: relative;
+            width: 32px;
+            height: 19px;
+            margin: 0;
+            border-radius: 10px;
+            background: var(--track);
+            transition: background 0.18s ease;
+        }
+
+        .switch::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            transition: transform 0.18s ease;
+        }
+
+        .switch:checked {
+            background: var(--accent);
+        }
+
+        .switch:checked::before {
+            transform: translateX(13px);
+        }
+
+        .links {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 12px;
+        }
+
+        .links td {
+            padding: 6px 0;
+            border-top: 0.5px solid var(--separator);
+            vertical-align: middle;
+            color: var(--secondary);
+        }
+
+        .links td:last-child {
+            width: 1%;
+            padding-left: 10px;
+        }
+
+        code {
+            padding: 1px 5px;
+            border-radius: 4px;
+            background: var(--code);
+            color: var(--text);
+            font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+            -webkit-user-select: all;
+            user-select: all;
+        }
+
+        .command {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0 12px;
+            padding: 8px 8px 8px 12px;
+            border-radius: 8px;
+            background: var(--code);
+        }
+
+        .command code {
+            flex: 1;
+            padding: 0;
+            background: none;
+        }
+
+        .copy {
+            flex: none;
+            border: 0;
+            border-radius: 5px;
+            padding: 3px 8px;
+            background: var(--track);
+            color: var(--text);
+            font: inherit;
+            font-size: 11px;
+        }
+
+        footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex: none;
+            padding: 12px 34px 16px;
+            border-top: 0.5px solid var(--separator);
+        }
+
+        .dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--track);
+        }
+
+        .dots span.on {
+            background: var(--accent);
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .nav-buttons .push {
+            min-width: 76px;
+        }
+
+        button:focus-visible,
+        .switch:focus-visible {
+            outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+        }
+    </style>
+</head>
+
+<body>
+    <nav aria-label="Guide sections">
+        <button type="button" data-page="welcome"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" /></svg>Welcome</button>
+        <button type="button" data-page="basics"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5M9 2h6" /></svg>Sessions &amp; Timer</button>
+        <button type="button" data-page="tasks"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7M17 15l3 3-3 3" /></svg>Long Tasks</button>
+        <button type="button" data-page="claude"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" /></svg>Claude Code</button>
+        <button type="button" data-page="lid"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5" /><path d="M2 19h20" /></svg>Lid Closed</button>
+        <button type="button" data-page="battery"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="16" height="10" rx="2" /><path d="M22 11v2M6 10v4M9 10v4" /></svg>Battery Guard</button>
+        <button type="button" data-page="automation"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>Automation</button>
+        <button type="button" data-page="more"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14" /></svg>Updates &amp; More</button>
+        <span class="version" id="version"></span>
+    </nav>
+
+    <div class="content">
+        <div class="titlebar"></div>
+
+        <section id="page-welcome" data-page="welcome">
+            <div class="hero">
+                <img src="../assets/insomnia-logo.png" alt="">
+                <h1>Welcome to Mac Insomnia</h1>
+                <p>Keeps your Mac awake while it matters, and lets it sleep when nothing is going on. It lives in the menu bar and stays out of the way.</p>
+                <div class="figure" style="width: 100%; max-width: 430px; margin: 4px 0 0;">
+                    <div class="menubar"><span class="dim">Wi-Fi</span><span class="dim">100%</span><span class="tray"><img src="../assets/icon-active.png" alt=""></span><span>Thu 10:30</span></div>
+                </div>
+                <div class="cards">
+                    <div class="card"><span class="glyph">👆</span><b>Left-click</b><span>Opens the menu with every option</span></div>
+                    <div class="card"><span class="glyph">✌️</span><b>Right-click</b><span>Starts or stops a session at once</span></div>
+                    <div class="card"><span class="glyph">◐</span><b>The icon</b><span>Filled while the Mac is kept awake</span></div>
+                </div>
+            </div>
+            <div class="callout"><span class="glyph">💡</span><span>This guide opens once. Open it again any time from <span class="ui">How to Use Insomnia…</span> in the menu or <span class="ui">Settings → General</span>.</span></div>
+        </section>
+
+        <section id="page-basics" data-page="basics" hidden>
+            <p class="eyebrow">The basics</p>
+            <h1>Sessions &amp; Timer</h1>
+            <p>A <strong>session</strong> keeps the Mac awake for a set time. Start it from the menu or with a right-click on the icon.</p>
+            <div class="figure">
+                <div class="stage">
+                    <div class="menu">
+                        <div class="item hl">Start (1 hour) Insomnia</div>
+                        <div class="sep"></div>
+                        <div class="item sub">Set Duration</div>
+                        <div class="item">Let the Display Sleep</div>
+                        <div class="item sub">Keep Awake Until a Process Ends</div>
+                        <div class="item sub">Battery Guard</div>
+                    </div>
+                </div>
+            </div>
+            <ul>
+                <li><span class="ui">Set Duration</span> picks 30 minutes, 1 hour, 2 hours or Infinite. Settings → Keep Awake sets the default.</li>
+                <li>Five minutes before the end you get a reminder. Click it and choose <span class="ui">Add 30 Minutes</span> to keep going.</li>
+                <li><span class="ui">Let the Display Sleep</span> keeps the Mac running but turns the screen off. Good for downloads, builds and long Claude runs.</li>
+            </ul>
+            <div class="callout"><span class="glyph">💡</span><span><strong>Prefer a timer to Infinite.</strong> An infinite session keeps the Mac awake even after everyone has left. A default of 1 or 2 hours covers most work, and the reminder tells you before it ends.</span></div>
+            <div class="figure"><picture><source srcset="guide/settings-awake-dark.png" media="(prefers-color-scheme: dark)"><img class="shot" src="guide/settings-awake-light.png" alt="The Awake tab in Settings"></picture></div>
+        </section>
+
+        <section id="page-tasks" data-page="tasks" hidden>
+            <p class="eyebrow">Wait for a job</p>
+            <h1>Keep Awake Until a Process Ends</h1>
+            <p>Stay awake exactly as long as a build, a render, an export or a download runs. When it finishes, you get a notification and the Mac can sleep again.</p>
+            <div class="figure">
+                <div class="stage with-sub">
+                    <div class="menu">
+                        <div class="item">Start (1 hour) Insomnia</div>
+                        <div class="sep"></div>
+                        <div class="item sub">Set Duration</div>
+                        <div class="item">Let the Display Sleep</div>
+                        <div class="item sub hl">Keep Awake Until a Process Ends</div>
+                        <div class="item sub">Battery Guard</div>
+                    </div>
+                    <div class="menu submenu">
+                        <div class="item hl">node (87% CPU)</div>
+                        <div class="item">Final Cut Pro (64% CPU)</div>
+                        <div class="item">ffmpeg (41% CPU)</div>
+                    </div>
+                </div>
+            </div>
+            <ol class="steps">
+                <li>Open <span class="ui">Keep Awake Until a Process Ends</span>. It lists the apps and tools that are busy right now, with their CPU use.</li>
+                <li>Pick the one to wait for. The menu then shows <span class="ui">Stop Waiting for …</span> to cancel.</li>
+            </ol>
+            <h3>From Terminal</h3>
+            <p>Run the command in the background and hand its process id to Insomnia:</p>
+            <div class="command"><code>npm run build &amp; open -g "mac-insomnia://until?pid=$!"</code><button class="copy" type="button">Copy</button></div>
+            <p>Stop it with <code>kill %1</code> rather than Ctrl-C. A wait is separate from the session: <span class="ui">Stop Insomnia</span> leaves it running.</p>
+        </section>
+
+        <section id="page-claude" data-page="claude" hidden>
+            <p class="eyebrow">For Claude Code</p>
+            <h1>Smart Mode</h1>
+            <p>Keeps the Mac awake while Claude Code is working on a turn, and lets it sleep as soon as Claude is idle. No timer to set.</p>
+            <div class="action">
+                <div class="label"><span>Claude Code hooks</span><small id="hooksCaption">They tell Insomnia exactly when a turn starts and ends</small></div>
+                <button class="push primary" type="button" id="installHooks">Install Hooks…</button>
+                <span class="done" id="hooksDone" hidden>✓ Installed</span>
+            </div>
+            <div class="action">
+                <div class="label"><span>Smart Mode</span><small>Keep awake while Claude works</small></div>
+                <input class="switch" type="checkbox" id="smartMode" aria-label="Smart Mode">
+            </div>
+            <h3>The recommended way to work</h3>
+            <ol class="steps">
+                <li><strong>Install the hooks once</strong> (above). Restart Claude Code sessions that are already open so they pick them up.</li>
+                <li><strong>Turn on Smart Mode</strong> and leave it on. The Mac stays awake through every turn, in every session, then sleeps.</li>
+                <li><strong>Skip the infinite session.</strong> Smart Mode already covers Claude. Start a timer only when you want the Mac awake without Claude too.</li>
+                <li><strong>Long background command?</strong> The hold ends when Claude finishes its turn, even if a command still runs. Add a timer or a process wait for it.</li>
+            </ol>
+            <p>To undo, <span class="ui">Remove Claude Code Hooks…</span> in the menu removes only these hooks and keeps the others.</p>
+            <div class="figure"><picture><source srcset="guide/settings-claude-dark.png" media="(prefers-color-scheme: dark)"><img class="shot" src="guide/settings-claude-light.png" alt="The Claude Code tab in Settings"></picture></div>
+        </section>
+
+        <section id="page-lid" data-page="lid" hidden>
+            <p class="eyebrow">Close the lid, keep working</p>
+            <h1>Lid Closed Mode</h1>
+            <p>macOS always sleeps when you close the lid. <span class="ui">Keep Awake with Lid Closed</span> turns that off system-wide after an administrator password, so a job or a Claude run continues with the lid shut.</p>
+            <div class="figure">
+                <div class="stage">
+                    <div class="menu">
+                        <div class="item">Stop Insomnia (1h 24m remaining)</div>
+                        <div class="sep"></div>
+                        <div class="item check hl">Keep Awake with Lid Closed</div>
+                        <div class="item disabled">⚠︎ Sleep is disabled system-wide</div>
+                        <div class="item disabled">Keep the Mac on power and out of bags</div>
+                        <div class="item disabled">Ends 10 min after Claude finishes</div>
+                    </div>
+                </div>
+            </div>
+            <div class="callout warn"><span class="glyph">⚠️</span><span><b>Only on power, never in a bag.</b> A closed Mac that cannot sleep gets hot. Insomnia warns you before every activation and turns the mode off on battery.</span></div>
+            <h3>Let Claude work with the lid closed</h3>
+            <ol class="steps">
+                <li>Connect power and start Claude on the task.</li>
+                <li>Choose <span class="ui">Keep Awake with Lid Closed</span> and enter the password.</li>
+                <li>Close the lid. When Claude has finished and stayed idle for 10 minutes (Settings → Claude Code), the mode turns itself off and the Mac sleeps.</li>
+            </ol>
+            <ul>
+                <li>Normal sleep comes back when you turn the mode off, when the timer ends, when you quit, and even after a crash or a force quit.</li>
+                <li>The mode is never on when the app starts, and updates wait until it is off.</li>
+            </ul>
+        </section>
+
+        <section id="page-battery" data-page="battery" hidden>
+            <p class="eyebrow">Protect the battery</p>
+            <h1>Battery Guard</h1>
+            <p>When the battery drops to the level you choose (20% by default), Insomnia stops everything that keeps the Mac awake: the session, Lid Closed Mode and Smart Mode holds. A notification says so, and Smart Mode resumes when power is back.</p>
+            <ul>
+                <li><span class="ui">Battery Guard</span> in the menu or Settings → Battery sets the level: 10, 20, 30, 50% or Off.</li>
+                <li><span class="ui">Turn Off Lid Closed Mode on Battery</span> (on by default) is the safety net for a closed Mac in a bag.</li>
+                <li>The guard only listens to the system while the Mac is on battery and being kept awake, so it costs nothing otherwise.</li>
+            </ul>
+            <div class="figure"><picture><source srcset="guide/settings-battery-dark.png" media="(prefers-color-scheme: dark)"><img class="shot" src="guide/settings-battery-light.png" alt="The Battery tab in Settings"></picture></div>
+        </section>
+
+        <section id="page-automation" data-page="automation" hidden>
+            <p class="eyebrow">Shortcuts, Raycast, scripts</p>
+            <h1>Automation</h1>
+            <p>Anything that can open a link can control Insomnia. A link also launches the app when it is not running.</p>
+            <table class="links">
+                <tr><td><code>mac-insomnia://start?minutes=90</code></td><td>Start for 90 minutes (1 to 1440)</td><td><button class="copy" type="button">Copy</button></td></tr>
+                <tr><td><code>mac-insomnia://start?minutes=infinite</code></td><td>Start with no limit</td><td><button class="copy" type="button">Copy</button></td></tr>
+                <tr><td><code>mac-insomnia://stop</code></td><td>Stop</td><td><button class="copy" type="button">Copy</button></td></tr>
+                <tr><td><code>mac-insomnia://toggle</code></td><td>Start or stop</td><td><button class="copy" type="button">Copy</button></td></tr>
+                <tr><td><code>mac-insomnia://until?pid=1234</code></td><td>Wait for process 1234</td><td><button class="copy" type="button">Copy</button></td></tr>
+            </table>
+            <ul>
+                <li><strong>Terminal:</strong> <code>open -g "mac-insomnia://start?minutes=90"</code>. <code>-g</code> keeps your focus where it is.</li>
+                <li><strong>Shortcuts:</strong> an <span class="ui">Open URLs</span> action with one of the links.</li>
+                <li><strong>Raycast:</strong> a Quicklink with one of the links.</li>
+            </ul>
+            <p>Lid Closed Mode cannot be turned on from a link, because it needs the warning and the password.</p>
+        </section>
+
+        <section id="page-more" data-page="more" hidden>
+            <p class="eyebrow">Stay current</p>
+            <h1>Updates &amp; More</h1>
+            <ul>
+                <li><strong>Updates.</strong> Insomnia checks GitHub once a day and asks before installing. The download is checked, the old copy is kept until the new one is in place, and your session and waits continue after the restart. <span class="ui">Check for Updates…</span> in the menu checks now.</li>
+                <li><strong>Notifications.</strong> Reminders, battery alerts and update offers are notifications. If you never see them, test them in Settings → General.</li>
+                <li><strong>Start at Login</strong>, sound effects and the icon style are in Settings → General.</li>
+                <li><strong>Uninstall.</strong> Remove the Claude Code hooks from the menu, quit, and delete the app. The README lists the folders it leaves behind.</li>
+            </ul>
+            <div class="action">
+                <div class="label"><span>Notifications</span><small id="testResult">Check that macOS lets Insomnia show them</small></div>
+                <button class="push" type="button" id="testNotification">Send a Test</button>
+            </div>
+            <div class="action">
+                <div class="label"><span>Settings</span><small>Every option in one window</small></div>
+                <button class="push" type="button" id="openSettings">Open Settings</button>
+            </div>
+            <div class="figure"><picture><source srcset="guide/settings-general-dark.png" media="(prefers-color-scheme: dark)"><img class="shot" src="guide/settings-general-light.png" alt="The General tab in Settings"></picture></div>
+        </section>
+
+        <footer>
+            <div class="dots" id="dots"></div>
+            <div class="nav-buttons">
+                <button class="push" type="button" id="back">Back</button>
+                <button class="push primary" type="button" id="next">Next</button>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        const pages = [...document.querySelectorAll('section[data-page]')].map((section) => section.dataset.page);
+        const navButtons = [...document.querySelectorAll('nav button')];
+        const dots = document.getElementById('dots');
+        let current = 0;
+
+        for (let i = 0; i < pages.length; i++) dots.appendChild(document.createElement('span'));
+
+        function show (index) {
+            current = Math.max(0, Math.min(pages.length - 1, index));
+            for (const section of document.querySelectorAll('section[data-page]')) {
+                section.hidden = section.dataset.page !== pages[current];
+                if (!section.hidden) section.scrollTop = 0;
+            }
+            navButtons.forEach((button) => {
+                if (button.dataset.page === pages[current]) button.setAttribute('aria-current', 'step');
+                else button.removeAttribute('aria-current');
+            });
+            [...dots.children].forEach((dot, i) => dot.classList.toggle('on', i === current));
+            document.getElementById('back').disabled = current === 0;
+            document.getElementById('next').textContent = current === pages.length - 1 ? 'Done' : (current === 0 ? 'Take the Tour' : 'Next');
+        }
+
+        navButtons.forEach((button) => button.addEventListener('click', () => show(pages.indexOf(button.dataset.page))));
+        document.getElementById('back').addEventListener('click', () => show(current - 1));
+        document.getElementById('next').addEventListener('click', () => (current === pages.length - 1 ? window.close() : show(current + 1)));
+        document.addEventListener('keydown', (event) => {
+            if (event.target.closest('input, code')) return;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') show(current + 1);
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') show(current - 1);
+        });
+
+        for (const button of document.querySelectorAll('.copy')) {
+            button.addEventListener('click', () => {
+                const text = button.closest('tr, .command').querySelector('code').textContent;
+                window.insomnia.copyText(text);
+                button.textContent = 'Copied';
+                setTimeout(() => (button.textContent = 'Copy'), 1400);
+            });
+        }
+
+        function render (settings) {
+            document.documentElement.style.setProperty('--accent', settings.accentColor);
+            document.getElementById('smartMode').checked = Boolean(settings.smartMode);
+            document.getElementById('installHooks').hidden = settings.claudeHooksInstalled;
+            document.getElementById('hooksDone').hidden = !settings.claudeHooksInstalled;
+            document.getElementById('hooksCaption').textContent = settings.claudeHooksInstalled
+                ? 'Installed. Remove them from the menu at any time'
+                : 'They tell Insomnia exactly when a turn starts and ends';
+        }
+
+        document.getElementById('installHooks').addEventListener('click', async () => render(await window.insomnia.installClaudeHooks()));
+        document.getElementById('smartMode').addEventListener('change', async (event) => render(await window.insomnia.setSetting('smartMode', event.target.checked)));
+        document.getElementById('openSettings').addEventListener('click', () => window.insomnia.openSettings());
+        document.getElementById('testNotification').addEventListener('click', async () => {
+            const sent = await window.insomnia.sendTestNotification();
+            document.getElementById('testResult').textContent = sent
+                ? 'Sent. Not seen? Settings → General → Open Notification Settings'
+                : 'Notifications are not available on this Mac';
+        });
+
+        window.insomnia.getVersion().then((version) => (document.getElementById('version').textContent = `Version ${version}`));
+        window.insomnia.onSettingsChanged(render);
+        window.insomnia.getSettings().then(render);
+        show(0);
+    </script>
+</body>
+
+</html>

@@ -15,6 +15,10 @@
 
 ## 📸 Screenshots
 
+| Guide, light | Guide, dark |
+|---|---|
+| <img src="./docs/screenshots/guide-welcome-light.png" alt="The guide's welcome page in light mode" width="380"> | <img src="./docs/screenshots/guide-claude-dark.png" alt="The guide's Claude Code page in dark mode" width="380"> |
+
 | General | Keep Awake |
 |---|---|
 | <img src="./docs/screenshots/settings-general-light.png" alt="Settings, General tab, light mode" width="320"> | <img src="./docs/screenshots/settings-awake-light.png" alt="Settings, Keep Awake tab, light mode" width="320"> |
@@ -27,13 +31,14 @@
 |---|---|
 | <img src="./docs/screenshots/about-light.png" alt="About in light mode" width="240"> | <img src="./docs/screenshots/about-dark.png" alt="About in dark mode" width="240"> |
 
-Settings is split into tabs and the window resizes to each one. Both windows follow the system's light or dark appearance and accent color, and in the app the window background is translucent.
+Settings is split into tabs and the window resizes to each one. The windows follow the system's light or dark appearance and accent color, and in the app the window background is translucent.
 
 ---
 
 ## 🚀 Features
 
 - 🕹️ **Menu Bar Control** – Toggle sleep prevention instantly
+- 📖 **Built-in Guide** – Opens on first launch and explains every option and the recommended way to work, with or without Claude Code. Open it again from **How to Use Insomnia…** in the menu or **Settings → General**
 - ⏱️ **Set Duration** – Choose 30 min, 1 hour, 2 hours, or infinite
 - ⏰ **Timer Reminder** – A notification five minutes before the timer ends. Clicking it opens the menu, where **Add 30 Minutes** extends the session
 - 🔋 **Battery Guard** – Stops keeping the Mac awake when the battery runs low (20% by default), and turns off Lid Closed Mode on battery
@@ -62,7 +67,7 @@ Settings is split into tabs and the window resizes to each one. Both windows fol
    xattr -dr com.apple.quarantine "/Applications/Mac Insomnia.app"
    ```
 
-4. Launch it from Spotlight. It lives in the menu bar: left-click for the menu, right-click to start or stop.
+4. Launch it from Spotlight. It lives in the menu bar: left-click for the menu, right-click to start or stop. The guide opens on the first launch.
 5. When macOS asks whether Mac Insomnia may send notifications, choose **Allow**: timer reminders and battery alerts are notifications. If you missed that prompt, open **Settings → General → Notifications** in Mac Insomnia, press **Send Test Notification**, and if nothing appears, press **Open Notification Settings**, choose **Mac Insomnia** in the list and turn on **Allow Notifications**.
 
 ---
