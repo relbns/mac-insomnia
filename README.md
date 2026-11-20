@@ -80,6 +80,7 @@ Mac Insomnia checks GitHub Releases once a day (Settings → General → **Check
 - The app inside is checked for the right bundle id and version, and `codesign --verify --deep --strict` must pass. The app is ad-hoc signed, so these checks prove the download is intact and complete, not who built it: the trust rests on the GitHub release itself.
 - The new copy is staged next to the app first. The swap is two renames, and the old copy is put back if either fails. Mac Insomnia then restarts, a running session and any process waits continue, and a notification says whether the update went in.
 - If any check fails, nothing is changed. Updates are not offered while Lid Closed Mode is on, because it needs the administrator password to come back.
+- Self-update arrived in 1.0.14. On an older version, install the latest release by hand once, as in [Installation](#-installation), and every later version updates itself.
 
 ---
 
