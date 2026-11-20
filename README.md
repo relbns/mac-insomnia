@@ -78,6 +78,22 @@ Mac Insomnia checks GitHub Releases once a day (Settings → General → **Check
 
 ---
 
+## 🗑️ Uninstall
+
+1. If you installed the Claude Code hooks, choose **Remove Claude Code Hooks…** in the menu. Hooks left behind do nothing, because each one checks that Mac Insomnia is running first, but removing them keeps `~/.claude/settings.json` clean.
+2. Turn off **Start at Login** (Settings → General) and **Keep Awake with Lid Closed** if it is on, then quit Mac Insomnia.
+3. Delete **Mac Insomnia.app** from **Applications**.
+4. Optionally, delete what it leaves behind:
+
+   ```bash
+   rm -rf ~/Library/Application\ Support/mac-insomnia
+   rm -f ~/.claude/settings.json.bak-mac-insomnia
+   ```
+
+   Mac Insomnia's entry under **System Settings → Notifications** goes away once macOS notices the app is gone, or you can turn it off there.
+
+---
+
 ## ⚙️ Development
 
 ```bash
