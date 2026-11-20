@@ -1,4 +1,4 @@
-const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog, powerMonitor, Notification, shell, systemPreferences, screen } = require('electron');
+const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog, powerMonitor, Notification, shell, systemPreferences, screen, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
@@ -35,12 +35,14 @@ let settings = {
     lidOffOnBattery: true,
     timerWarning: true,
     autoUpdate: true,
-    lidEndsWhenClaudeIdle: DEFAULT_IDLE_MINUTES
+    lidEndsWhenClaudeIdle: DEFAULT_IDLE_MINUTES,
+    welcomeShown: false
 };
 
 let tray = null;
 let settingsWindow = null;
 let aboutWindow = null;
+let guideWindow = null;
 let isPlaying = false;
 let caffeinateProcess = null;
 let duration = null;
@@ -110,7 +112,9 @@ function saveSettings () {
     } catch (error) {
         console.error('Error saving settings:', error);
     }
-    if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings-changed', settingsForRenderer());
+    for (const win of [settingsWindow, guideWindow]) {
+        if (win && !win.isDestroyed()) win.webContents.send('settings-changed', settingsForRenderer());
+    }
 }
 
 function setStartAtLogin (openAtLogin) {
@@ -362,6 +366,19 @@ function createSettingsWindow () {
     settingsWindow.once('closed', () => (settingsWindow = null));
 }
 
+function createGuideWindow () {
+    guideWindow = openWindow(guideWindow, { width: 780, height: 620, title: 'Welcome to Mac Insomnia' }, 'guide.html');
+    guideWindow.once('closed', () => (guideWindow = null));
+}
+
+ipcMain.on('open-guide', () => createGuideWindow());
+ipcMain.on('open-settings', () => createSettingsWindow());
+ipcMain.on('copy-text', (_event, text) => clipboard.writeText(String(text)));
+ipcMain.handle('install-claude-hooks', async () => {
+    await changeClaudeHooks(true);
+    return settingsForRenderer();
+});
+
 function createAboutWindow () {
     aboutWindow = openWindow(aboutWindow, { width: 320, height: 380, title: 'About Mac Insomnia' }, 'about.html');
     aboutWindow.once('closed', () => (aboutWindow = null));
@@ -601,6 +618,7 @@ function createContextMenu () {
         ...smartMenuItems(),
         { type: 'separator' },
         { label: 'Settings', click: () => createSettingsWindow() },
+        { label: 'How to Use Insomnia…', click: () => createGuideWindow() },
         { label: 'About', click: () => createAboutWindow() },
         ...updateMenuItems(),
         { type: 'separator' },
@@ -1099,6 +1117,11 @@ if (!app.requestSingleInstanceLock()) {
         }
         applySmartMode();
         pendingUrls.splice(0).forEach(handleUrl);
+        if (!settings.welcomeShown) {
+            settings.welcomeShown = true;
+            saveSettings();
+            createGuideWindow();
+        }
         powerMonitor.on('on-battery', () => onPowerSourceChange(true));
         powerMonitor.on('on-ac', () => onPowerSourceChange(false));
         powerMonitor.on('resume', () => {

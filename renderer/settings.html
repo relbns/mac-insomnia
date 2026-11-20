@@ -240,6 +240,10 @@
             font-weight: 500;
         }
 
+        .push.guide {
+            flex: none;
+        }
+
         .push:active {
             background: var(--segment);
             box-shadow: var(--segment-shadow);
@@ -329,6 +333,13 @@
                     </span>
                     <input class="switch" type="checkbox" data-setting="autoUpdate">
                 </label>
+                <div class="row">
+                    <span class="label">
+                        <span>How to use Mac Insomnia</span>
+                        <span class="caption">What every option does and the recommended way to work</span>
+                    </span>
+                    <button class="push guide" type="button" id="openGuide">Open Guide</button>
+                </div>
                 <div class="row stacked">
                     <div class="label">
                         <span>Notifications</span>
@@ -485,6 +496,7 @@
             result.hidden = false;
         });
         document.getElementById('notificationSettings').addEventListener('click', () => window.insomnia.openNotificationSettings());
+        document.getElementById('openGuide').addEventListener('click', () => window.insomnia.openGuide());
 
         const tabs = [...document.querySelectorAll('[role="tab"]')];
 
