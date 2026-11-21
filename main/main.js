@@ -66,6 +66,7 @@ let updateNotification = null;
 let updateNotifiedVersion = null;
 let updateInstalling = false;
 let updatePromptOpen = false;
+let updateChecking = false;
 let processCandidates = [];
 let processCandidatesOk = true;
 let processRefresh = null;
@@ -197,6 +198,7 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 function updateMenuItems () {
     if (!updater) return [];
     if (updateInstalling) return [{ label: 'Installing Update…', enabled: false }];
+    if (updateChecking) return [{ label: 'Checking for Updates…', enabled: false }];
     if (updater.available) return [{ label: `Install Update ${updater.available.version}…`, click: () => promptInstallUpdate() }];
     return [{ label: 'Check for Updates…', click: () => checkForUpdates({ silent: false }) }];
 }
@@ -211,19 +213,32 @@ function scheduleUpdateCheck (delayMs = 30 * 1000) {
     }, delayMs);
 }
 
+async function showUpdateResult (message, detail) {
+    app.focus({ steal: true });
+    await dialog.showMessageBox({ type: 'info', message, detail, buttons: ['OK'] });
+}
+
 async function checkForUpdates ({ silent }) {
-    if (!updater || updateInstalling) return;
-    const result = await updater.check();
+    if (!updater || updateInstalling || updateChecking) return;
+    updateChecking = true;
     invalidateMenu();
+    let result;
+    try {
+        result = await updater.check();
+    } finally {
+        updateChecking = false;
+        invalidateMenu();
+    }
     if (!result.ok) {
         console.error('Update check:', errorText(result.error));
-        if (!silent) notify('Could not check for updates', errorText(result.error));
+        if (!silent) await showUpdateResult('Could not check for updates', `${errorText(result.error)}. Check your connection and try again.`);
         return;
     }
     if (!result.available) {
-        if (!silent) notify('Mac Insomnia is up to date', `You have version ${app.getVersion()}.`);
+        if (!silent) await showUpdateResult('Mac Insomnia is up to date', `You have ${app.getVersion()}, the latest version.`);
         return;
     }
+    if (!silent) return promptInstallUpdate();
     if (silent && updateNotifiedVersion === result.available.version) return;
     updateNotifiedVersion = result.available.version;
     if (!Notification.isSupported()) return;
@@ -259,7 +274,7 @@ async function promptInstallUpdate () {
         app.focus({ steal: true });
         ({ response } = await dialog.showMessageBox({
             type: 'info',
-            message: `Install Mac Insomnia ${update.version}?`,
+            message: `Mac Insomnia ${update.version} is available`,
             detail: `You have ${app.getVersion()}. Mac Insomnia downloads the update from GitHub, checks it, and restarts. A running session and any process waits continue after the restart.`,
             buttons: ['Install and Restart', 'Release Notes', 'Later'],
             defaultId: 0,
