@@ -9,7 +9,7 @@ const { ProcessWatcher } = require('./process-watch');
 const { DEFAULT_IDLE_MINUTES, normalizeIdleMinutes, shouldArmIdleTimer, idleDelayMs } = require('./claude-lid');
 const { warningPlan, extendedEndTime, minutesLeft, extendLabel } = require('./timer-warning');
 const { GUARD_LEVELS, DEFAULT_GUARD_PERCENT, BatteryMonitor, normalizeGuardPercent, shouldMonitor, shouldStop, shouldResumeSmartMode, lidModeAllowed } = require('./battery-guard');
-const { thermalAction, lidModeAllowedWhenHot, smartModeAllowedWhenHot } = require('./thermal-guard');
+const { shouldTurnOffLidMode, lidModeAllowedWhenHot } = require('./thermal-guard');
 const { parseCommandUrl, MAX_MINUTES } = require('./url-commands');
 const { ClaudeWatcher, URL_SCHEME, CLAUDE_SETTINGS, readClaudeSettings, writeClaudeSettings, hasHooks, addHooks, removeHooks } = require('./claude-watch');
 
@@ -83,8 +83,6 @@ let onBattery = false;
 let lastBatteryPercent = null;
 let guardStopping = false;
 let thermalState = 'unknown';
-let thermalStopping = false;
-let thermalLidTried = false;
 const pendingUrls = [];
 const iconCache = new Map();
 
@@ -673,7 +671,7 @@ function refreshTray () {
     invalidateMenu();
     updateBatteryMonitoring();
     updateLidIdleTimer();
-    evaluateThermalGuard();
+    evaluateThermalGuard().catch((error) => console.error('Thermal Guard:', error));
 }
 
 function isKeepingAwake () {
@@ -754,7 +752,7 @@ async function evaluateBatteryGuard () {
 }
 
 function resumeSmartModeIfAllowed () {
-    if (claudeWatcher?.suspended && shouldResumeSmartMode({ guardPercent: guardPercent(), onBattery, percent: lastBatteryPercent }) && smartModeAllowedWhenHot({ enabled: settings.thermalGuard, state: thermalState })) {
+    if (claudeWatcher?.suspended && shouldResumeSmartMode({ guardPercent: guardPercent(), onBattery, percent: lastBatteryPercent })) {
         claudeWatcher.resume();
     }
 }
@@ -791,52 +789,38 @@ function setLidOffOnBattery (value) {
 
 function currentThermalState () {
     try {
-        return powerMonitor.getCurrentThermalState?.() ?? 'unknown';
-    } catch {
+        return powerMonitor.getCurrentThermalState();
+    } catch (error) {
+        console.error('Thermal Guard: could not read the thermal state:', error);
         return 'unknown';
     }
 }
 
 function onThermalStateChange () {
     thermalState = currentThermalState();
-    thermalLidTried = false;
-    resumeSmartModeIfAllowed();
     refreshTray();
 }
 
 async function evaluateThermalGuard () {
-    if (thermalStopping || !lidSleep || !processWatcher) return;
-    const lidOn = !thermalLidTried && (lidSleep.active || lidSleep.pending);
-    const keepingAwake = lidOn || isPlaying || Boolean(claudeWatcher?.count) || Boolean(processWatcher.count);
-    const action = thermalAction({ enabled: settings.thermalGuard, state: thermalState, lidOn, keepingAwake });
-    if (action === 'none') return;
-    thermalStopping = true;
-    try {
-        let lidRestored = true;
-        if (lidOn) {
-            thermalLidTried = true;
-            if (lidSleep.pending) lidSleep.killToken();
-            if (lidSleep.active) lidRestored = Boolean((await disableLidMode())?.restored);
-        }
-        if (action === 'stop-all') {
-            stopPlayback();
-            if (settings.smartMode) claudeWatcher.suspend();
-            processWatcher.unwatchAll();
-        }
-        if (!lidRestored) notify('The Mac is running hot', 'Insomnia tried to turn off Lid Closed Mode, but sleep is still disabled. Open the Insomnia menu and choose "Restore Normal Sleep…".');
-        else if (action === 'stop-all') notify('The Mac is too hot', `Insomnia stopped keeping it awake so it can sleep and cool down (Thermal Guard).${settings.smartMode ? ' Smart Mode resumes when it cools down.' : ''}`);
-        else notify('The Mac is running hot', 'Insomnia turned off Lid Closed Mode so the Mac can sleep and cool down (Thermal Guard).');
-    } finally {
-        thermalStopping = false;
-        refreshTray();
+    if (!lidSleep) return;
+    if (!shouldTurnOffLidMode({ enabled: settings.thermalGuard, state: thermalState, lidOn: lidSleep.active || lidSleep.pending, lidBusy })) return;
+    if (lidSleep.pending) {
+        lidSleep.killToken();
+        notify('Lid Closed Mode turned off', 'The Mac is running hot, so Insomnia did not turn on Lid Closed Mode (Thermal Guard).');
+        return;
     }
+    const startedByLid = lidStartedPlayback;
+    const result = await disableLidMode();
+    if (!result?.restored) return;
+    if (startedByLid) stopPlayback();
+    notify('Lid Closed Mode turned off', startedByLid
+        ? 'The Mac is running hot, so Insomnia turned off Lid Closed Mode and the session it started. The Mac can sleep and cool down (Thermal Guard).'
+        : 'The Mac is running hot, so Insomnia turned off Lid Closed Mode. With the lid closed, the Mac can sleep and cool down (Thermal Guard).');
 }
 
 function setThermalGuard (value) {
     settings.thermalGuard = value;
     saveSettings();
-    thermalLidTried = false;
-    resumeSmartModeIfAllowed();
     refreshTray();
 }
 
@@ -848,7 +832,7 @@ function batteryMenuItems () {
         { type: 'separator' },
         { label: 'Turn Off Lid Closed Mode on Battery', type: 'checkbox', checked: settings.lidOffOnBattery, click: () => toggleLidOffOnBattery() },
         { type: 'separator' },
-        { label: 'Thermal Guard: Stop When the Mac Is Hot', type: 'checkbox', checked: settings.thermalGuard, click: () => setThermalGuard(!settings.thermalGuard) }
+        { label: 'Thermal Guard: Turn Off Lid Closed Mode When Hot', type: 'checkbox', checked: settings.thermalGuard, click: () => setThermalGuard(!settings.thermalGuard) }
     ];
 }
 
@@ -1061,6 +1045,11 @@ function toggleLidMode () {
     }
     return runLidTask(async () => {
         if (!(await confirmLidMode())) return;
+        thermalState = currentThermalState();
+        if (!lidModeAllowedWhenHot({ enabled: settings.thermalGuard, state: thermalState })) {
+            notify('Lid closed mode is off while the Mac is hot', 'Let it cool down first, or turn off Thermal Guard in Settings → Battery.');
+            return;
+        }
         const wasPlaying = isPlaying;
         lidStartedPlayback = !wasPlaying;
         startPlayback();
@@ -1189,9 +1178,10 @@ if (!app.requestSingleInstanceLock()) {
         }
         powerMonitor.on('on-battery', () => onPowerSourceChange(true));
         powerMonitor.on('on-ac', () => onPowerSourceChange(false));
-        thermalState = currentThermalState();
         powerMonitor.on('thermal-state-change', onThermalStateChange);
+        onThermalStateChange();
         powerMonitor.on('resume', () => {
+            onThermalStateChange();
             if (isPlaying && endTime) scheduleTimers();
             const battery = powerMonitor.isOnBatteryPower();
             if (battery !== onBattery) onPowerSourceChange(battery);

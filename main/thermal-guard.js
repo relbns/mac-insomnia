@@ -1,22 +1,15 @@
 const HOT_STATES = ['serious', 'critical'];
 
-function isHot (state) {
-    return HOT_STATES.includes(state);
+function isHot ({ enabled, state }) {
+    return Boolean(enabled) && HOT_STATES.includes(state);
 }
 
-function thermalAction ({ enabled, state, lidOn, keepingAwake }) {
-    if (!enabled) return 'none';
-    if (state === 'critical' && keepingAwake) return 'stop-all';
-    if (isHot(state) && lidOn) return 'lid-off';
-    return 'none';
+function shouldTurnOffLidMode ({ enabled, state, lidOn, lidBusy }) {
+    return isHot({ enabled, state }) && lidOn && !lidBusy;
 }
 
 function lidModeAllowedWhenHot ({ enabled, state }) {
-    return !(enabled && isHot(state));
+    return !isHot({ enabled, state });
 }
 
-function smartModeAllowedWhenHot ({ enabled, state }) {
-    return !(enabled && state === 'critical');
-}
-
-module.exports = { thermalAction, lidModeAllowedWhenHot, smartModeAllowedWhenHot };
+module.exports = { shouldTurnOffLidMode, lidModeAllowedWhenHot };

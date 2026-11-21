@@ -770,10 +770,10 @@
                 <li>The guard only listens to the system while the Mac is on battery and being kept awake, so it costs nothing otherwise.</li>
             </ul>
             <h3>Thermal Guard</h3>
-            <p>macOS tells apps when the Mac runs hot. With <span class="ui">Thermal Guard</span> on (the default), Insomnia listens and steps back:</p>
+            <p>A closed Mac that cannot sleep is the one that overheats. With <span class="ui">Thermal Guard</span> on (the default), Insomnia listens to the heat level macOS reports:</p>
             <ul>
-                <li><strong>Running hot:</strong> Lid Closed Mode turns off, so a closed Mac can sleep, and it cannot be turned on until the Mac cools down.</li>
-                <li><strong>Critical:</strong> everything that keeps the Mac awake stops. Smart Mode resumes on its own once the Mac cools down.</li>
+                <li><strong>Running hot:</strong> Lid Closed Mode turns off, so a closed Mac can sleep and cool down, and it cannot be turned on again until the Mac cools down.</li>
+                <li><strong>Lid open:</strong> sessions, process waits and Smart Mode keep running. Staying awake does not heat the Mac, the work does, and macOS slows it down on its own.</li>
                 <li>It costs nothing: macOS sends the event, Insomnia never polls. Turn it off in Settings → Battery or the Battery Guard menu.</li>
             </ul>
             <div class="figure"><picture><source srcset="guide/settings-battery-dark.png" media="(prefers-color-scheme: dark)"><img class="shot" src="guide/settings-battery-light.png" alt="The Battery tab in Settings"></picture></div>
