@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -30,3 +32,8 @@ jobs:
 
       - name: Build app
         run: npm run build
+
+      - name: Write release notes
+        run: |
+          node scripts/release-notes.js "$GITHUB_REF_NAME" > release-notes.md
+          gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
