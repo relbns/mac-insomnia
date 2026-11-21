@@ -42,6 +42,7 @@ Settings is split into tabs and the window resizes to each one. The windows foll
 - ⏱️ **Set Duration** – Choose 30 min, 1 hour, 2 hours, or infinite
 - ⏰ **Timer Reminder** – A notification five minutes before the timer ends. Clicking it opens the menu, where **Add 30 Minutes** extends the session
 - 🔋 **Battery Guard** – Stops keeping the Mac awake when the battery runs low (20% by default), and turns off Lid Closed Mode on battery
+- 🌡️ **Thermal Guard** – Turns off Lid Closed Mode when macOS reports the Mac is running hot, so a closed Mac can sleep and cool down
 - ⏳ **Keep Awake Until a Process Ends** – Pick a busy app or tool (a build, a render, a download) and stay awake until it finishes, with a notification when it does
 - 🖥️ **Let the Display Sleep** – Keep the Mac running but let the screen turn off, to save power during downloads, builds or long Claude runs
 - 🔊 **Sound Effects** – Optional feedback for start/stop
@@ -136,7 +137,7 @@ dist/
 
 `caffeinate` cannot stop the sleep that happens when you close a MacBook's lid. **Keep Awake with Lid Closed** in the menu runs `pmset -a disablesleep 1` through the standard macOS administrator prompt.
 
-- **Use it only on power, and never put the Mac in a bag or a closed space while it is on.** The Mac will not sleep and can overheat. The app warns you before every activation and notifies you if the Mac switches to battery.
+- **Use it only on power, and never put the Mac in a bag or a closed space while it is on.** The Mac will not sleep and can overheat. The app warns you before every activation, notifies you if the Mac switches to battery, and turns the mode off when macOS reports the Mac is running hot (Thermal Guard).
 - Normal sleep (`disablesleep 0`) is restored when you turn the mode off, when the timer ends and when you quit, with no second password. The same administrator prompt starts a one-shot root launchd job that waits on a helper process tied to the app. When the helper ends, for any reason including a crash or a force quit, the job restores sleep and removes itself.
 - On launch the app checks `pmset -g`. If sleep is still disabled after an unclean exit (for example a reboot while the mode was on), it asks for the password to restore it. If something else disabled sleep, the menu says so and offers **Restore Normal Sleep…**.
 - The mode always starts off when the app launches.
@@ -155,6 +156,11 @@ A notification says when it does.
 - The level is checked with `pmset -g pslog`, a stream of the system's power-source notifications, so Mac Insomnia does not poll. That stream runs only while the guard is on, the Mac is on battery and something is keeping it awake.
 - **Turn Off Lid Closed Mode on Battery** (on by default) keeps Lid Closed Mode off whenever the Mac runs on battery, because a closed Mac running on battery is the case where it can overheat in a bag. It turns the mode off when the Mac switches to battery, even while the password prompt is open, and refuses to turn it on while on battery. With it off, you get a warning instead.
 - Starting a session below the guard level stops it again right away, with the same notification. Lower the level or set it to Off to override. That also resumes a paused Smart Mode.
+
+**Thermal Guard** (Settings → Battery, or the Battery Guard menu, on by default) listens to macOS thermal-state notifications, so it never polls:
+- When the Mac is **running hot** (`serious` or `critical`), Lid Closed Mode is turned off, together with the session it started, and cannot be turned on until the Mac cools down. A closed Mac that cannot sleep is the case that overheats.
+- With the lid open, sessions, process waits and Smart Mode keep running. Staying awake does not heat the Mac, the work does, and macOS slows the work down on its own.
+- A notification says what it did. If sleep cannot be restored, the notification points to **Restore Normal Sleep…**.
 
 ---
 

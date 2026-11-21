@@ -624,7 +624,7 @@
         <button type="button" data-page="tasks"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7M17 15l3 3-3 3" /></svg>Long Tasks</button>
         <button type="button" data-page="claude"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" /></svg>Claude Code</button>
         <button type="button" data-page="lid"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5" /><path d="M2 19h20" /></svg>Lid Closed</button>
-        <button type="button" data-page="battery"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="16" height="10" rx="2" /><path d="M22 11v2M6 10v4M9 10v4" /></svg>Battery Guard</button>
+        <button type="button" data-page="battery"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="16" height="10" rx="2" /><path d="M22 11v2M6 10v4M9 10v4" /></svg>Battery &amp; Heat</button>
         <button type="button" data-page="automation"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>Automation</button>
         <button type="button" data-page="more"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14" /></svg>Updates &amp; More</button>
         <span class="version" id="version"></span>
@@ -746,7 +746,7 @@
                     </div>
                 </div>
             </div>
-            <div class="callout warn"><span class="glyph">⚠️</span><span><b>Only on power, never in a bag.</b> A closed Mac that cannot sleep gets hot. Insomnia warns you before every activation and turns the mode off on battery.</span></div>
+            <div class="callout warn"><span class="glyph">⚠️</span><span><b>Only on power, never in a bag.</b> A closed Mac that cannot sleep gets hot. Insomnia warns you before every activation, and turns the mode off on battery and when the Mac runs hot.</span></div>
             <h3>Let Claude work with the lid closed</h3>
             <ol class="steps">
                 <li>Connect power and start Claude on the task.</li>
@@ -760,13 +760,21 @@
         </section>
 
         <section id="page-battery" data-page="battery" hidden>
-            <p class="eyebrow">Protect the battery</p>
-            <h1>Battery Guard</h1>
+            <p class="eyebrow">Protect the battery and the Mac</p>
+            <h1>Battery &amp; Heat</h1>
+            <h3>Battery Guard</h3>
             <p>When the battery drops to the level you choose (20% by default), Insomnia stops everything that keeps the Mac awake: the session, Lid Closed Mode and Smart Mode holds. A notification says so, and Smart Mode resumes when power is back.</p>
             <ul>
                 <li><span class="ui">Battery Guard</span> in the menu or Settings → Battery sets the level: 10, 20, 30, 50% or Off.</li>
                 <li><span class="ui">Turn Off Lid Closed Mode on Battery</span> (on by default) is the safety net for a closed Mac in a bag.</li>
                 <li>The guard only listens to the system while the Mac is on battery and being kept awake, so it costs nothing otherwise.</li>
+            </ul>
+            <h3>Thermal Guard</h3>
+            <p>A closed Mac that cannot sleep is the one that overheats. With <span class="ui">Thermal Guard</span> on (the default), Insomnia listens to the heat level macOS reports:</p>
+            <ul>
+                <li><strong>Running hot:</strong> Lid Closed Mode turns off, so a closed Mac can sleep and cool down, and it cannot be turned on again until the Mac cools down.</li>
+                <li><strong>Lid open:</strong> sessions, process waits and Smart Mode keep running. Staying awake does not heat the Mac, the work does, and macOS slows it down on its own.</li>
+                <li>It costs nothing: macOS sends the event, Insomnia never polls. Turn it off in Settings → Battery or the Battery Guard menu.</li>
             </ul>
             <div class="figure"><picture><source srcset="guide/settings-battery-dark.png" media="(prefers-color-scheme: dark)"><img class="shot" src="guide/settings-battery-light.png" alt="The Battery tab in Settings"></picture></div>
         </section>
