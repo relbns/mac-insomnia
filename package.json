@@ -1,6 +1,6 @@
 {
   "name": "mac-insomnia",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Mac Insomnia",
   "main": "main/main.js",
   "scripts": {
